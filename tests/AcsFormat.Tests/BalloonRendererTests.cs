@@ -20,7 +20,8 @@ public class BalloonRendererTests
     public void AutoCompleteTipMatchesScreenshot()
     {
         var content = BalloonScenarios.TipWithAnswerWizard("Word can complete things that you frequently type. Just press enter to accept the completion.");
-        var state = new BalloonState { TextBoxText = BalloonScenarios.QuestionPlaceholder, TextBoxSelected = true, TextBoxFocused = true };
+        var state = new BalloonState { TextBoxText = BalloonScenarios.QuestionPlaceholder, TextBoxFocused = true };
+        state.SelectAll();
         AssertMatches("Screenshot 2026-10-15 204610.png", content, state, tailX: 90, left: 4, top: 7, width: 184, height: 197);
     }
 
@@ -35,7 +36,8 @@ public class BalloonRendererTests
     {
         var topics = HelpTopics.Search("Print");
         var page = topics.Take(5).Select(t => (t.Id, t.Title)).ToList();
-        var state = new BalloonState { TextBoxText = "Print", TextBoxSelected = true, TextBoxFocused = true };
+        var state = new BalloonState { TextBoxText = "Print", TextBoxFocused = true };
+        state.SelectAll();
         AssertMatches("Screenshot 2026-10-15 204134.png", BalloonScenarios.SearchResults(page, hasMore: topics.Count > 5), state, tailX: 106, left: 25, top: 33, width: 200, height: 258);
     }
 

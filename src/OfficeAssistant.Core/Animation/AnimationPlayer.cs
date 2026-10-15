@@ -4,8 +4,8 @@ namespace OfficeAssistant.Core.Animation;
 
 /// <summary>
 /// Plays Agent animations frame by frame with the original timing, random branching,
-/// sounds, return animations and graceful exits through exit branches when another
-/// animation is requested.
+/// sounds and return animations. A new request replaces the running animation at once;
+/// <see cref="Stop"/> leaves gracefully through the exit branches.
 /// </summary>
 public sealed class AnimationPlayer : IDisposable
 {
@@ -28,7 +28,6 @@ public sealed class AnimationPlayer : IDisposable
     private bool _exiting;
     private int _exitFrames;
     private Action? _completed;
-    private (AcsAnimation Animation, Action? Completed)? _pending;
 
     public AnimationPlayer(AcsCharacter character, Action<uint[]> present, Action<int>? playSound)
     {
@@ -47,8 +46,8 @@ public sealed class AnimationPlayer : IDisposable
     public uint[] CurrentFrame => _frameBuffer;
 
     /// <summary>
-    /// Plays an animation. If one is already running it first leaves through its exit
-    /// branches, then the new one starts. Returns false if the name is unknown.
+    /// Plays an animation, cancelling any running one immediately (its completion
+    /// callback is dropped). Returns false if the name is unknown.
     /// </summary>
     public bool Play(string name, Action? completed = null)
     {
@@ -58,17 +57,8 @@ public sealed class AnimationPlayer : IDisposable
             return false;
         }
 
-        if (_current is null)
-        {
-            Start(animation, completed);
-        }
-        else
-        {
-            _pending?.Completed?.Invoke();
-            _pending = (animation, completed);
-            _exiting = true;
-        }
-
+        Abort();
+        Start(animation, completed);
         return true;
     }
 
@@ -86,7 +76,6 @@ public sealed class AnimationPlayer : IDisposable
     {
         _timer.Stop();
         _current = null;
-        _pending = null;
         _completed = null;
     }
 
@@ -199,14 +188,6 @@ public sealed class AnimationPlayer : IDisposable
         _current = null;
         _completed = null;
         _exiting = false;
-
-        if (_pending is { } pending)
-        {
-            _pending = null;
-            completed?.Invoke();
-            Start(pending.Animation, pending.Completed);
-            return;
-        }
 
         if (finished is { TransitionType: AcsTransitionType.ReturnAnimation, ReturnAnimation.Length: > 0 }
             && _character.FindAnimation(finished.ReturnAnimation) is { } returnAnimation

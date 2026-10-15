@@ -33,9 +33,13 @@ public sealed partial class MainPage : Page
             {
                 RedrawPreview();
             }
-            else if (e.PropertyName == nameof(MainPageViewModel.SoundsEnabled) && _previewSounds is not null)
+            else if (e.PropertyName == nameof(MainPageViewModel.PreviewMuted) && _previewSounds is not null)
             {
-                _previewSounds.Enabled = ViewModel.SoundsEnabled;
+                _previewSounds.Enabled = !ViewModel.PreviewMuted;
+                if (ViewModel.PreviewMuted)
+                {
+                    _previewSounds.Stop();
+                }
             }
         };
 
@@ -70,7 +74,7 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        _previewSounds = new SoundPlayer(_previewCharacter) { Enabled = ViewModel.SoundsEnabled };
+        _previewSounds = new SoundPlayer(_previewCharacter) { Enabled = !ViewModel.PreviewMuted };
         _previewPlayer = new AnimationPlayer(_previewCharacter, ShowPreviewFrame, _previewSounds.Play);
         PlayPreview();
     }

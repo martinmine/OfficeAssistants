@@ -24,6 +24,7 @@ public sealed class BalloonWindow : LayeredWindow
     private int _anchorScale = 1;
     private BalloonHit _pressed = BalloonHit.None;
     private bool _trackingLeave;
+    private bool _selecting;
 
     public BalloonWindow()
         : base(activatable: true)
@@ -51,7 +52,7 @@ public sealed class BalloonWindow : LayeredWindow
         _content = content;
         _state.TextBoxText = content.Blocks.OfType<BalloonTextBox>().FirstOrDefault()?.InitialText ?? string.Empty;
         _state.TextBoxFocused = false;
-        _state.TextBoxSelected = false;
+        _selecting = false;
         _anchor = frame;
         _anchorScale = scale;
         _layout = _renderer.Measure(content, _state);
@@ -59,7 +60,9 @@ public sealed class BalloonWindow : LayeredWindow
         Show(activate && HasTextBox);
         if (activate && HasTextBox)
         {
-            FocusTextBox();
+            Native.SetForegroundWindow(Handle);
+            _state.SelectAll();
+            SetTextBoxFocus(true);
         }
     }
 
@@ -77,6 +80,12 @@ public sealed class BalloonWindow : LayeredWindow
     public void Close()
     {
         Native.KillTimer(Handle, CaretTimerId);
+        if (_selecting)
+        {
+            _selecting = false;
+            Native.ReleaseCapture();
+        }
+
         _content = null;
         _layout = null;
         Hide();
@@ -89,7 +98,7 @@ public sealed class BalloonWindow : LayeredWindow
             case Native.WM_ACTIVATE:
                 if (Native.LowWord(wParam) == 0)
                 {
-                    // Deactivated: the box loses focus and shows unselected text.
+                    // Deactivated: the box loses focus and hides its selection.
                     SetTextBoxFocus(false);
                 }
 
@@ -106,6 +115,12 @@ public sealed class BalloonWindow : LayeredWindow
                     _trackingLeave = Native.TrackMouseEvent(ref tme);
                 }
 
+                if (_selecting)
+                {
+                    _state.Select(_state.AnchorIndex, TextIndexAtCursor());
+                    Repaint();
+                }
+
                 return 0;
 
             case Native.WM_MOUSELEAVE:
@@ -116,13 +131,32 @@ public sealed class BalloonWindow : LayeredWindow
                 _pressed = HitTestCursor();
                 if (_pressed.Kind == BalloonHitKind.TextBox)
                 {
-                    FocusTextBox();
+                    OnTextBoxMouseDown();
+                }
+
+                return 0;
+
+            case Native.WM_LBUTTONDBLCLK:
+                // The second click of a double-click arrives instead of a button-down.
+                _pressed = HitTestCursor();
+                if (_pressed.Kind == BalloonHitKind.TextBox && _state.TextBoxFocused)
+                {
+                    var (start, end) = TextEditing.WordAt(_state.TextBoxText, TextIndexAtCursor());
+                    _state.Select(start, end);
+                    Repaint();
                 }
 
                 return 0;
 
             case Native.WM_LBUTTONUP:
             {
+                if (_selecting)
+                {
+                    _selecting = false;
+                    Native.ReleaseCapture();
+                    return 0;
+                }
+
                 var hit = HitTestCursor();
                 var pressed = _pressed;
                 _pressed = BalloonHit.None;
@@ -143,13 +177,17 @@ public sealed class BalloonWindow : LayeredWindow
                 return 0;
             }
 
+            case Native.WM_CAPTURECHANGED:
+                _selecting = false;
+                return 0;
+
             case Native.WM_TIMER when wParam == CaretTimerId:
                 _state.CaretVisible = !_state.CaretVisible;
                 Repaint();
                 return 0;
 
-            case Native.WM_KEYDOWN when (int)wParam == Native.VK_ESCAPE:
-                Dismissed?.Invoke(this, EventArgs.Empty);
+            case Native.WM_KEYDOWN:
+                OnKeyDown((int)wParam);
                 return 0;
 
             case Native.WM_CHAR:
@@ -159,6 +197,108 @@ public sealed class BalloonWindow : LayeredWindow
 
         return null;
     }
+
+    private void OnTextBoxMouseDown()
+    {
+        if (!_state.TextBoxFocused)
+        {
+            Native.SetForegroundWindow(Handle);
+
+            // The question prompt is replaced as a whole, like in Office.
+            if (_state.TextBoxText == BalloonScenarios.QuestionPlaceholder)
+            {
+                _state.SelectAll();
+                SetTextBoxFocus(true);
+                return;
+            }
+
+            SetTextBoxFocus(true);
+        }
+
+        var index = TextIndexAtCursor();
+        _state.Select(Native.IsKeyDown(Native.VK_SHIFT) ? _state.AnchorIndex : index, index);
+        _state.CaretVisible = true;
+        _selecting = true;
+        Native.SetCapture(Handle);
+        Repaint();
+    }
+
+    private void OnKeyDown(int key)
+    {
+        if (key == Native.VK_ESCAPE)
+        {
+            Dismissed?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        if (!_state.TextBoxFocused)
+        {
+            return;
+        }
+
+        var shift = Native.IsKeyDown(Native.VK_SHIFT);
+        var control = Native.IsKeyDown(Native.VK_CONTROL);
+        var text = _state.TextBoxText;
+        var caret = _state.CaretIndex;
+
+        switch (key)
+        {
+            // Without Shift, arrows first collapse an existing selection to its edge.
+            case Native.VK_LEFT when !shift && !control && _state.HasSelection:
+                MoveCaret(_state.SelectionStart, shift);
+                break;
+            case Native.VK_RIGHT when !shift && !control && _state.HasSelection:
+                MoveCaret(_state.SelectionEnd, shift);
+                break;
+            case Native.VK_LEFT:
+                MoveCaret(control ? TextEditing.PreviousWordStart(text, caret) : Math.Max(0, caret - 1), shift);
+                break;
+            case Native.VK_RIGHT:
+                MoveCaret(control ? TextEditing.NextWordStart(text, caret) : Math.Min(text.Length, caret + 1), shift);
+                break;
+            case Native.VK_HOME:
+                MoveCaret(0, shift);
+                break;
+            case Native.VK_END:
+                MoveCaret(text.Length, shift);
+                break;
+            case Native.VK_DELETE:
+                if (!_state.HasSelection)
+                {
+                    _state.Select(caret, Math.Min(text.Length, caret + 1));
+                }
+
+                _state.ReplaceSelection(string.Empty);
+                break;
+            case 'A' when control:
+                _state.SelectAll();
+                break;
+            case 'C' when control && _state.HasSelection:
+                Clipboard.SetText(Handle, _state.SelectedText);
+                return;
+            case 'X' when control && _state.HasSelection:
+                Clipboard.SetText(Handle, _state.SelectedText);
+                _state.ReplaceSelection(string.Empty);
+                break;
+            case 'V' when control:
+                var paste = Clipboard.GetText(Handle);
+                if (string.IsNullOrEmpty(paste))
+                {
+                    return;
+                }
+
+                _state.ReplaceSelection(paste.ReplaceLineEndings(" "));
+                break;
+            default:
+                return;
+        }
+
+        _state.CaretVisible = true;
+        Repaint();
+    }
+
+    private void MoveCaret(int index, bool extend) =>
+        _state.Select(extend ? _state.AnchorIndex : index, index);
 
     private void OnChar(char c)
     {
@@ -173,53 +313,41 @@ public sealed class BalloonWindow : LayeredWindow
             return;
         }
 
-        if (!_state.TextBoxFocused || c == (char)Native.VK_ESCAPE)
+        if (!_state.TextBoxFocused)
         {
             return;
         }
 
-        if (_state.TextBoxSelected)
-        {
-            _state.TextBoxText = string.Empty;
-            _state.TextBoxSelected = false;
-        }
-
         if (c == '\b')
         {
-            if (_state.TextBoxText.Length > 0)
+            if (!_state.HasSelection && _state.CaretIndex > 0)
             {
-                _state.TextBoxText = _state.TextBoxText[..^1];
+                _state.Select(_state.CaretIndex - 1, _state.CaretIndex);
             }
+
+            _state.ReplaceSelection(string.Empty);
         }
         else if (!char.IsControl(c))
         {
-            _state.TextBoxText += c;
+            _state.ReplaceSelection(c.ToString());
+        }
+        else
+        {
+            return;
         }
 
         _state.CaretVisible = true;
         Repaint();
     }
 
-    private void FocusTextBox()
-    {
-        if (!HasTextBox)
-        {
-            return;
-        }
-
-        Native.SetForegroundWindow(Handle);
-        SetTextBoxFocus(true);
-    }
-
     private void SetTextBoxFocus(bool focused)
     {
-        if (_state.TextBoxFocused == focused || _layout is null)
+        if (_state.TextBoxFocused == focused || _layout is null || !HasTextBox)
         {
             return;
         }
 
         _state.TextBoxFocused = focused;
-        _state.TextBoxSelected = focused && _state.TextBoxText.Length > 0;
         _state.CaretVisible = focused;
         if (focused)
         {
@@ -231,6 +359,17 @@ public sealed class BalloonWindow : LayeredWindow
         }
 
         Repaint();
+    }
+
+    private int TextIndexAtCursor()
+    {
+        if (_bitmap is null)
+        {
+            return 0;
+        }
+
+        var (x, y) = CursorPosition();
+        return _renderer.TextIndexFromPoint(_bitmap, (x - X) / Scale, (y - Y) / Scale);
     }
 
     private void Repaint()

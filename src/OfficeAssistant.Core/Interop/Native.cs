@@ -33,7 +33,17 @@ internal static partial class Native
 
     public const int VK_BACK = 0x08;
     public const int VK_RETURN = 0x0D;
+    public const int VK_SHIFT = 0x10;
+    public const int VK_CONTROL = 0x11;
     public const int VK_ESCAPE = 0x1B;
+    public const int VK_END = 0x23;
+    public const int VK_HOME = 0x24;
+    public const int VK_LEFT = 0x25;
+    public const int VK_RIGHT = 0x27;
+    public const int VK_DELETE = 0x2E;
+
+    public const uint CF_UNICODETEXT = 13;
+    public const uint GMEM_MOVEABLE = 0x0002;
 
     public const int SW_HIDE = 0;
     public const int SW_SHOWNOACTIVATE = 4;
@@ -328,11 +338,47 @@ internal static partial class Native
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool GdiFlush();
 
+    [LibraryImport("user32.dll")]
+    public static partial short GetKeyState(int virtualKey);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool OpenClipboard(nint owner);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool CloseClipboard();
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool EmptyClipboard();
+
+    [LibraryImport("user32.dll")]
+    public static partial nint GetClipboardData(uint format);
+
+    [LibraryImport("user32.dll")]
+    public static partial nint SetClipboardData(uint format, nint memory);
+
+    [LibraryImport("kernel32.dll")]
+    public static partial nint GlobalAlloc(uint flags, nuint bytes);
+
+    [LibraryImport("kernel32.dll")]
+    public static partial nint GlobalLock(nint memory);
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GlobalUnlock(nint memory);
+
+    [LibraryImport("kernel32.dll")]
+    public static partial nint GlobalFree(nint memory);
+
     [LibraryImport("winmm.dll", EntryPoint = "PlaySoundW")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool PlaySound(nint sound, nint module, uint flags);
 
     public static nint MakeIntResource(int id) => id;
+
+    public static bool IsKeyDown(int virtualKey) => GetKeyState(virtualKey) < 0;
 
     public static int LowWord(nint value) => unchecked((short)(long)value);
 

@@ -36,9 +36,12 @@ public sealed class SoundPlayer(AcsCharacter character) : IDisposable
         Native.PlaySound(buffer, 0, Native.SND_MEMORY | Native.SND_ASYNC | Native.SND_NODEFAULT);
     }
 
+    /// <summary>Stops the clip that is playing, if any.</summary>
+    public void Stop() => Native.PlaySound(0, 0, 0);
+
     public void Dispose()
     {
-        Native.PlaySound(0, 0, 0);
+        Stop();
         foreach (var buffer in _buffers.Values)
         {
             Marshal.FreeHGlobal(buffer);

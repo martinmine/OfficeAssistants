@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <Page
     x:Class="OfficeAssistant.MainPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -28,19 +28,30 @@
             <StackPanel Spacing="12">
                 <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Gallery" />
 
-                <Border
-                    Height="220"
-                    Background="White"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="4">
-                    <Image
-                        x:Name="PreviewImage"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        AutomationProperties.Name="Assistant preview"
-                        Stretch="Fill" />
-                </Border>
+                <Grid>
+                    <Border
+                        Height="220"
+                        Background="White"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="4">
+                        <Image
+                            x:Name="PreviewImage"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            AutomationProperties.Name="Assistant preview"
+                            Stretch="Fill" />
+                    </Border>
+                    <ToggleButton
+                        Margin="8"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        AutomationProperties.Name="{x:Bind ViewModel.PreviewMuteLabel, Mode=OneWay}"
+                        IsChecked="{x:Bind ViewModel.PreviewMuted, Mode=TwoWay}"
+                        ToolTipService.ToolTip="{x:Bind ViewModel.PreviewMuteLabel, Mode=OneWay}">
+                        <FontIcon FontSize="16" Glyph="{x:Bind ViewModel.PreviewMuteGlyph, Mode=OneWay}" />
+                    </ToggleButton>
+                </Grid>
 
                 <TextBlock
                     Style="{StaticResource BodyStrongTextBlockStyle}"

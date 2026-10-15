@@ -83,6 +83,16 @@ public partial class MainPageViewModel : ObservableObject
     [ObservableProperty]
     public partial bool SoundsEnabled { get; set; } = true;
 
+    /// <summary>Silences the gallery preview only; the assistant keeps "Make sounds".</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PreviewMuteGlyph), nameof(PreviewMuteLabel))]
+    public partial bool PreviewMuted { get; set; } = LoadPreviewMuted();
+
+    /// <summary>Segoe Fluent Icons: Mute or Volume.</summary>
+    public string PreviewMuteGlyph => PreviewMuted ? "" : "";
+
+    public string PreviewMuteLabel => PreviewMuted ? "Unmute preview" : "Mute preview";
+
     /// <summary>0 = original pixels, 1 = 2x, 2 = 3x.</summary>
     [ObservableProperty]
     public partial int ScaleIndex { get; set; }
@@ -245,6 +255,30 @@ public partial class MainPageViewModel : ObservableObject
     }
 
     partial void OnSoundsEnabledChanged(bool value) => _assistant.SoundsEnabled = value;
+
+    partial void OnPreviewMutedChanged(bool value)
+    {
+        try
+        {
+            Windows.Storage.ApplicationData.Current.LocalSettings.Values[nameof(PreviewMuted)] = value;
+        }
+        catch (InvalidOperationException)
+        {
+            // No package identity (unpackaged run): the setting just isn't remembered.
+        }
+    }
+
+    private static bool LoadPreviewMuted()
+    {
+        try
+        {
+            return Windows.Storage.ApplicationData.Current.LocalSettings.Values[nameof(PreviewMuted)] is true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
 
     partial void OnScaleIndexChanged(int value) => _assistant.Scale = value + 1;
 

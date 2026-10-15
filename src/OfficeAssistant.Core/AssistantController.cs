@@ -262,6 +262,12 @@ public sealed class AssistantController : IDisposable
         }
 
         _idleTimer.Stop();
+        if (_player.IsPlaying)
+        {
+            // Cut the running animation short, including its sound.
+            _sounds?.Stop();
+        }
+
         var started = _player.Play(animation, () =>
         {
             completed?.Invoke();

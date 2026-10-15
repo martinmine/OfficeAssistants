@@ -115,14 +115,14 @@ static void RenderBalloon(string scenario, string output, int tailX, bool tailOn
         case "autocomplete":
             content = BalloonScenarios.TipWithAnswerWizard("Word can complete things that you frequently type. Just press enter to accept the completion.");
             state.TextBoxText = BalloonScenarios.QuestionPlaceholder;
-            state.TextBoxSelected = true;
+            state.SelectAll();
             break;
         case "results":
             content = BalloonScenarios.SearchResults(
                 [("1", "Print merged documents"), ("2", "Cancel printing"), ("3", "Print a document to a file"), ("4", "Print a document"), ("5", "WEB: Printing troubleshooter")],
                 hasMore: true);
             state.TextBoxText = "Print";
-            state.TextBoxSelected = true;
+            state.SelectAll();
             break;
         case "save":
             content = BalloonScenarios.SaveChanges();
