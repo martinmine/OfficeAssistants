@@ -1,4 +1,6 @@
 # Office Assistants
+<img width="1418" height="870" alt="image" src="https://github.com/user-attachments/assets/bd04b0ef-a50d-470a-be56-ed09e2cdee80" />
+
 
 A proof of concept that brings back the Office XP assistants (Clippit and friends) as a
 WinUI 3 app written in C#. Characters, animations, sounds and localized strings are read
