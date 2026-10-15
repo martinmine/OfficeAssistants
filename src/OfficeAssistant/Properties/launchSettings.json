@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "OfficeAssistant (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "OfficeAssistant (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

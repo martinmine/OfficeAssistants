@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AcsFormat/AcsFormat.csproj" />
+    <Project Path="src/OfficeAssistant.Core/OfficeAssistant.Core.csproj" />
+    <Project Path="src/OfficeAssistant/OfficeAssistant.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AcsFormat.Tests/AcsFormat.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/AcsTool/AcsTool.csproj" />
+  </Folder>
+</Solution>
