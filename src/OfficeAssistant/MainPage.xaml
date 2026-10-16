@@ -28,7 +28,8 @@
             <StackPanel Spacing="12">
                 <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Gallery" />
 
-                <Grid>
+                <!--  The preview surface is always white, so keep its controls in the light theme  -->
+                <Grid RequestedTheme="Light">
                     <Border
                         Height="220"
                         Background="White"
