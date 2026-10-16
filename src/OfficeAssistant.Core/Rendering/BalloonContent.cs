@@ -41,7 +41,11 @@ public sealed record BalloonLabel(string Text, string Id) : BalloonBlock;
 public sealed record BalloonSeeMore(string Text, string Id) : BalloonBlock;
 
 /// <summary>The Answer Wizard question box.</summary>
-public sealed record BalloonTextBox(string InitialText) : BalloonBlock;
+public sealed record BalloonTextBox(string InitialText) : BalloonBlock
+{
+    /// <summary>The initial text is a prompt: it is replaced as a whole and never counts as a question.</summary>
+    public bool IsPlaceholder { get; init; }
+}
 
 /// <summary>Thin grey rule, used above message-box buttons.</summary>
 public sealed record BalloonSeparator : BalloonBlock;

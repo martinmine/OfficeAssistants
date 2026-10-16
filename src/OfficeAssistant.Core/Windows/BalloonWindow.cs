@@ -18,6 +18,7 @@ public sealed class BalloonWindow : LayeredWindow
     private readonly BalloonRenderer _renderer = new();
     private readonly BalloonState _state = new();
     private BalloonContent? _content;
+    private string? _placeholder;
     private BalloonLayout? _layout;
     private BalloonBitmap? _bitmap;
     private (int X, int Y, int Width, int Height) _anchor;
@@ -42,7 +43,7 @@ public sealed class BalloonWindow : LayeredWindow
     public BalloonContent? Content => _content;
 
     /// <summary>Current text of the Answer Wizard box (empty when it still shows the placeholder).</summary>
-    public string Question => _state.TextBoxText == BalloonScenarios.QuestionPlaceholder ? string.Empty : _state.TextBoxText;
+    public string Question => _state.TextBoxText == _placeholder ? string.Empty : _state.TextBoxText;
 
     public bool HasTextBox => _content?.Blocks.Any(b => b is BalloonTextBox) == true;
 
@@ -50,7 +51,9 @@ public sealed class BalloonWindow : LayeredWindow
     public void ShowContent(BalloonContent content, (int X, int Y, int Width, int Height) frame, int scale, bool activate)
     {
         _content = content;
-        _state.TextBoxText = content.Blocks.OfType<BalloonTextBox>().FirstOrDefault()?.InitialText ?? string.Empty;
+        var box = content.Blocks.OfType<BalloonTextBox>().FirstOrDefault();
+        _state.TextBoxText = box?.InitialText ?? string.Empty;
+        _placeholder = box is { IsPlaceholder: true } ? box.InitialText : null;
         _state.TextBoxFocused = false;
         _selecting = false;
         _anchor = frame;
@@ -205,7 +208,7 @@ public sealed class BalloonWindow : LayeredWindow
             Native.SetForegroundWindow(Handle);
 
             // The question prompt is replaced as a whole, like in Office.
-            if (_state.TextBoxText == BalloonScenarios.QuestionPlaceholder)
+            if (_state.TextBoxText == _placeholder)
             {
                 _state.SelectAll();
                 SetTextBoxFocus(true);

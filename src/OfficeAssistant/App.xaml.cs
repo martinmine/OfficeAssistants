@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using OfficeAssistant.Core;
+using OfficeAssistant.Core.Chat;
 
 namespace OfficeAssistant;
 
@@ -25,6 +26,9 @@ public partial class App : Application
     /// </summary>
     public static AssistantController Assistant { get; private set; } = null!;
 
+    /// <summary>The Claude settings and every assistant's instructions and MCP servers.</summary>
+    public static SettingsStore Settings { get; private set; } = null!;
+
     /// <summary>
     /// The native window handle (HWND) of the main window, for pickers and interop.
     /// </summary>
@@ -39,7 +43,8 @@ public partial class App : Application
     protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
         DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-        Assistant = new AssistantController();
+        Settings = new SettingsStore();
+        Assistant = new AssistantController(Settings);
         Window = new MainWindow();
         Window.Closed += (_, _) => Assistant.Dispose();
         Window.Activate();

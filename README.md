@@ -2,10 +2,15 @@
 <img width="1418" height="870" alt="image" src="https://github.com/user-attachments/assets/bd04b0ef-a50d-470a-be56-ed09e2cdee80" />
 
 
-A proof of concept that brings back the Office XP assistants (Clippit and friends) as a
-WinUI 3 app written in C#. Characters, animations, sounds and localized strings are read
-straight from the original Microsoft Agent files, and the assistant and its balloons are
-drawn pixel for pixel: the tests compare the output with the reference screenshots in
+The Office XP assistants (Clippit and friends) are back, and this time they actually know
+things. Ask the assistant a question in its balloon and it answers with
+[Claude](https://www.anthropic.com/claude), reacting with its own animations. Give each
+assistant [MCP](https://modelcontextprotocol.io) servers and it can use their tools too:
+read your files, search your notes, check your calendar, or whatever the servers offer.
+
+It's a WinUI 3 app written in C#. Characters, animations, sounds and localized strings are
+read straight from the original Microsoft Agent files, and the assistant and its balloons
+are drawn pixel for pixel: the tests compare the output with the reference screenshots in
 `Screenshots/` and require zero differing pixels.
 
 ## Requirements
@@ -23,6 +28,11 @@ drawn pixel for pixel: the tests compare the output with the reference screensho
   ```
 
   Open a new terminal afterwards so `winapp` is on the `PATH`.
+- A **Claude API key** from the [Claude Console](https://platform.claude.com). You paste it
+  into the app (it's stored encrypted for your Windows account), or set the
+  `ANTHROPIC_API_KEY` environment variable.
+- For local MCP servers, whatever they run on, typically [Node.js](https://nodejs.org)
+  (`npx`) or [uv](https://docs.astral.sh/uv/) (`uvx`).
 
 Visual Studio is optional. With the *WinUI application development* workload you can open
 `OfficeAssistant.slnx` and press F5 on the `OfficeAssistant (Package)` profile instead of
@@ -47,18 +57,71 @@ dotnet build OfficeAssistant.slnx
 
 ## Using the app
 
-- **Click** the assistant to open "What would you like to do?". Type a question (try
-  "print") and press Enter or click Search.
+- In the main window's **Claude** card, paste your API key and click **Save key**. The
+  model defaults to `claude-opus-5-5`; you can pick or type another.
+- **Click** the assistant to open "What would you like to do?". Type a question and press
+  Enter or click **Ask**. The answer appears in the balloon; long answers get a
+  **See more...** link. Type a follow-up in the box under the answer, or click
+  **New topic** to start over. **Cancel** (or Escape) stops a question in progress.
 - **Drag** the assistant to move it, **double-click** it to play a random animation, and
-  **right-click** it for Hide, Options, Choose Assistant and Animate!
+  **right-click** it for Hide, Options, Choose Assistant, New Topic and Animate!
 - In the main window:
   - **Gallery**: browse the assistants with Back/Next and click **Use this assistant**.
     The speaker button mutes the preview.
   - **Options**: show or hide the assistant, turn sounds on or off, pick the pixel size
     (1x is identical to the original) and the language for the assistant's strings.
-  - **Balloons**: open each recreated Office XP balloon.
+  - **Claude**: the API key, the model, and buttons to ask a question or start a new
+    conversation.
+  - **Instructions and tools**: extra instructions and the MCP servers for the active
+    assistant (see below).
   - **Animations**: play any animation in the character file.
-  - **Localized strings**: the name, description, greetings and reminders stored in the file.
+
+## MCP servers
+
+Each assistant has its own MCP servers, so Clippit can have your files while Rocky has
+your calendar. Enter them in **Instructions and tools** using the same JSON as Claude
+Desktop's `mcpServers` (you can paste a whole `claude_desktop_config.json`), then click
+**Save and connect**:
+
+```json
+{
+  "filesystem": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\you\\Documents"]
+  },
+  "remote": {
+    "url": "https://example.com/mcp",
+    "headers": { "Authorization": "Bearer ..." }
+  }
+}
+```
+
+- `command`, `args`, `env` and `cwd` start a local server over stdio.
+- `url` and `headers` connect to a remote server (Streamable HTTP, falling back to SSE).
+- The assistant asks in its balloon before every tool call (**Allow**, **Always** for the
+  rest of the conversation, or **Deny**). Add `"alwaysAllow": ["tool_name"]`, or `["*"]`
+  for every tool of a server, to skip asking.
+- `"disabled": true` keeps a server in the list without connecting to it.
+
+The cards below the button show whether each server connected and which tools it offers.
+The assistant also has a built-in tool to play its own animations. Settings live in
+`%LOCALAPPDATA%\OfficeAssistant\settings.json` (redirected into the package's folder when
+the app runs packaged); the path is shown at the bottom of the card.
+
+## How it works
+
+`OfficeAssistant.Core/Chat` holds the conversation code:
+
+- `AssistantChat` runs the conversation with the Claude Messages API (the official
+  `Anthropic` NuGet package). It sends the assistant's tools, runs the tool calls Claude
+  asks for, and loops until Claude answers. Requests opt into server-side fallback, so a
+  request the model declines for policy reasons is retried on a fallback model.
+- `McpHub` connects to the active assistant's MCP servers with the official
+  `ModelContextProtocol` package and names their tools `server__tool`.
+- `AnswerFormatter` turns Claude's answer into plain text for the balloon and splits long
+  answers into pages.
+- `AppSettings`/`SettingsStore` load and save the settings; the API key is encrypted with
+  Windows DPAPI.
 
 ## Assistant files
 
@@ -105,7 +168,7 @@ warning icon from the screenshots into `src/OfficeAssistant.Core/Rendering/Ballo
 | Path | Contents |
 |------|----------|
 | `src/AcsFormat` | Platform-neutral parser for `.acs`/`.acg` files: localized strings, states, animations (frames, branches, exit branches, mouth overlays), images with the Agent decompressor, and WAVE sounds. |
-| `src/OfficeAssistant.Core` | Windows runtime: layered Win32 windows for the character and balloon, the Office XP balloon renderer, animation and sound playback, idling and the Answer Wizard. |
+| `src/OfficeAssistant.Core` | Windows runtime: layered Win32 windows for the character and balloon, the Office XP balloon renderer, animation and sound playback, idling, and the conversation with Claude and MCP servers (`Chat/`). |
 | `src/OfficeAssistant` | The WinUI 3 app. |
 | `tools/AcsTool` | Developer CLI described above. |
 | `tests/AcsFormat.Tests` | Unit and pixel-comparison tests. |
@@ -120,6 +183,8 @@ warning icon from the screenshots into `src/OfficeAssistant.Core/Rendering/Ballo
 | `winapp` is not recognized | Install WinApp CLI and open a new terminal. |
 | `NETSDK1045` or a missing SDK error | Install the .NET 10 SDK. |
 | The app starts but no assistant appears | Check that `Assistants/` contains the `.acs`/`.acg` files, then use **Show the Office Assistant** in Options. |
+| "There's a problem: I need a Claude API key" | Paste a key in the **Claude** card and click **Save key**, or set `ANTHROPIC_API_KEY` and restart the app. |
+| An MCP server shows "Failed" | Check that its command runs in a terminal (for example `npx` needs Node.js on the `PATH`), then click **Reconnect**. Remote servers that need OAuth sign-in aren't supported yet; use `headers` with a token. |
 | The assistant looks small on a high-DPI screen | Choose a larger **Pixel size** in Options; it scales by whole pixels so the art stays sharp. |
 
 ## Notes on the file format

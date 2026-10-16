@@ -16,14 +16,14 @@ public static class BalloonScenarios
     /// <summary>"What would you like to do?" shown when the assistant is clicked.</summary>
     public static BalloonContent AnswerWizard() => new(
         new BalloonText("What would you like to do?", Bold: true),
-        new BalloonTextBox(QuestionPlaceholder),
+        new BalloonTextBox(QuestionPlaceholder) { IsPlaceholder = true },
         AnswerWizardButtons);
 
     /// <summary>A tip followed by the Answer Wizard, as in the AutoComplete screenshot.</summary>
     public static BalloonContent TipWithAnswerWizard(string tip) => new(
         new BalloonText(tip),
         new BalloonText("What would you like to do?", Bold: true),
-        new BalloonTextBox(QuestionPlaceholder) { SpaceBefore = 3 },
+        new BalloonTextBox(QuestionPlaceholder) { IsPlaceholder = true, SpaceBefore = 3 },
         AnswerWizardButtons);
 
     /// <summary>Answer Wizard results: up to five topics and "See more...".</summary>

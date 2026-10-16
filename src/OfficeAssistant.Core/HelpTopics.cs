@@ -1,6 +1,9 @@
 namespace OfficeAssistant.Core;
 
-/// <summary>A stand-in help index for the Answer Wizard prototype.</summary>
+/// <summary>
+/// The canned help index from the original Answer Wizard prototype. The assistant now answers
+/// with Claude; this is kept to recreate the Office XP search results balloon.
+/// </summary>
 public static class HelpTopics
 {
     public sealed record Topic(string Id, string Title, string Animation);

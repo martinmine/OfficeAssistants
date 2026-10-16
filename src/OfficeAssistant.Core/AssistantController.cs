@@ -1,5 +1,9 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using AcsFormat;
+using Anthropic;
 using OfficeAssistant.Core.Animation;
+using OfficeAssistant.Core.Chat;
 using OfficeAssistant.Core.Rendering;
 using OfficeAssistant.Core.Windows;
 
@@ -7,18 +11,21 @@ namespace OfficeAssistant.Core;
 
 /// <summary>
 /// Runs the on-screen assistant: the character window, its balloon, animations,
-/// sounds, idling and the Answer Wizard. Create and use it on the UI thread.
+/// sounds, idling and the conversation with Claude (including the tools of the
+/// assistant's MCP servers). Create and use it on the UI thread.
 /// </summary>
-public sealed class AssistantController : IDisposable
+public sealed class AssistantController : IDisposable, IChatHost
 {
     private const int MenuHide = 1;
     private const int MenuOptions = 2;
     private const int MenuChoose = 3;
     private const int MenuAnimate = 4;
-    private const int ResultsPageSize = 5;
+    private const int MenuNewTopic = 5;
+    private const string PlayAnimationTool = "play_animation";
 
     private static readonly string[] NonGestureAnimations = ["Show", "Hide", "RestPose", "Hearing_1", "Alert", "GoodBye"];
 
+    private readonly SettingsStore _settings;
     private readonly CharacterWindow _window = new();
     private readonly BalloonWindow _balloon = new();
     private readonly UiTimer _idleTimer = new();
@@ -30,20 +37,30 @@ public sealed class AssistantController : IDisposable
     private bool _positioned;
     private bool _hiding;
     private DateTime _idleSince = DateTime.UtcNow;
-    private IReadOnlyList<HelpTopics.Topic> _results = [];
-    private int _resultsPage;
     private int _scale = 1;
     private bool _soundsEnabled = true;
 
-    public AssistantController()
+    private AssistantChat? _chat;
+    private AnthropicClient? _client;
+    private string? _clientKey;
+    private CancellationTokenSource? _request;
+    private TaskCompletionSource<ToolApproval>? _approval;
+    private string _status = string.Empty;
+    private bool _animatedThisTurn;
+    private IReadOnlyList<string> _pages = [];
+    private int _page;
+
+    public AssistantController(SettingsStore settings)
     {
+        _settings = settings;
         _window.Clicked += (_, _) => OnCharacterClicked();
         _window.DoubleClicked += (_, _) => Animate();
         _window.ContextMenuRequested += (_, point) => ShowContextMenu(point.X, point.Y);
         _window.Moved += (_, _) => _balloon.UpdateAnchor(FrameBounds, _scale);
         _balloon.ButtonClicked += (_, id) => OnBalloonButton(id);
         _balloon.LabelClicked += (_, id) => OnBalloonLabel(id);
-        _balloon.Dismissed += (_, _) => CloseBalloon();
+        _balloon.Dismissed += (_, _) => OnBalloonDismissed();
+        _settings.Saved += (_, _) => _client = null;
     }
 
     public event EventHandler? VisibilityChanged;
@@ -59,7 +76,15 @@ public sealed class AssistantController : IDisposable
 
     public AcsCharacter? Character { get; private set; }
 
+    /// <summary>The MCP servers of the active assistant.</summary>
+    public McpHub Mcp { get; } = new();
+
+    /// <summary>The active assistant's instructions and MCP servers.</summary>
+    public AssistantProfile? Profile => Definition is null ? null : _settings.Settings.GetProfile(Definition.Key);
+
     public bool IsShown => _window.IsVisible && !_hiding;
+
+    public bool IsBusy => _chat?.IsBusy == true;
 
     /// <summary>Windows language id used for the character's localized strings.</summary>
     public int LanguageId { get; set; } = System.Globalization.CultureInfo.CurrentUICulture.LCID;
@@ -115,11 +140,25 @@ public sealed class AssistantController : IDisposable
         Character = definition.LoadCharacter();
         _sounds = new SoundPlayer(Character) { Enabled = SoundsEnabled };
         _player = new AnimationPlayer(Character, frame => Present(frame, _window.X, _window.Y), _sounds.Play);
+        _chat = null;
+        _ = ConnectMcpServersAsync();
 
         if (wasShown)
         {
             Show(greet);
         }
+    }
+
+    /// <summary>Reconnects to the active assistant's MCP servers after they were edited.</summary>
+    public Task ConnectMcpServersAsync() =>
+        Mcp.ConnectAsync(Profile?.McpServers ?? new Dictionary<string, McpServerConfig>());
+
+    /// <summary>Forgets the conversation so the next question starts fresh (and picks up new instructions).</summary>
+    public void NewConversation()
+    {
+        CancelRequest();
+        _chat = null;
+        _pages = [];
     }
 
     public void Show(bool greet = true)
@@ -156,7 +195,7 @@ public sealed class AssistantController : IDisposable
         {
             if (greet && Strings?.Greetings is { Count: > 0 } greetings)
             {
-                ShowBalloon(BalloonScenarios.TipWithAnswerWizard(greetings[_random.Next(greetings.Count)]), activate: false);
+                ShowBalloon(ChatBalloons.Ask(greetings[_random.Next(greetings.Count)]), activate: false);
             }
         });
     }
@@ -168,6 +207,7 @@ public sealed class AssistantController : IDisposable
             return;
         }
 
+        CancelRequest();
         CloseBalloon();
         _idleTimer.Stop();
         _hiding = true;
@@ -199,19 +239,17 @@ public sealed class AssistantController : IDisposable
             return;
         }
 
-        var candidates = Character.Animations
-            .Where(a => !a.Name.StartsWith("Idle", StringComparison.OrdinalIgnoreCase)
-                && !a.Name.StartsWith("Look", StringComparison.OrdinalIgnoreCase)
-                && !a.Name.StartsWith("Gesture", StringComparison.OrdinalIgnoreCase)
-                && !NonGestureAnimations.Contains(a.Name, StringComparer.OrdinalIgnoreCase))
-            .ToList();
+        var candidates = Gestures().ToList();
         if (candidates.Count == 0)
         {
-            candidates = [.. Character.Animations];
+            candidates = [.. Character.Animations.Select(a => a.Name)];
         }
 
-        Play(candidates[_random.Next(candidates.Count)].Name);
+        Play(candidates[_random.Next(candidates.Count)]);
     }
+
+    /// <summary>Opens "What would you like to do?".</summary>
+    public void ShowAskBalloon(string? tip = null) => ShowBalloon(ChatBalloons.Ask(tip));
 
     public void ShowBalloon(BalloonContent content, bool activate = true)
     {
@@ -227,14 +265,40 @@ public sealed class AssistantController : IDisposable
 
     public void Dispose()
     {
+        CancelRequest();
         UnloadCharacter();
+        _ = Mcp.DisposeAsync().AsTask();
         _idleTimer.Dispose();
         _balloon.Dispose();
         _window.Dispose();
     }
 
+    void IChatHost.ReportStatus(string status, string? animation)
+    {
+        _status = status;
+        ShowBalloon(ChatBalloons.Working(status), activate: false);
+
+        // Don't cut short an animation Claude chose (or one that is already running).
+        if (animation is not null && _player?.IsPlaying != true)
+        {
+            Play(animation);
+        }
+    }
+
+    Task<ToolApproval> IChatHost.ApproveAsync(ToolCallRequest request, CancellationToken cancellationToken)
+    {
+        _approval?.TrySetResult(ToolApproval.Deny);
+        var approval = new TaskCompletionSource<ToolApproval>();
+        _approval = approval;
+        cancellationToken.Register(() => approval.TrySetCanceled(cancellationToken));
+        Play("GetAttention");
+        ShowBalloon(ChatBalloons.ToolApproval(request.Server, request.Tool, request.Input));
+        return approval.Task;
+    }
+
     private void UnloadCharacter()
     {
+        CancelRequest();
         _idleTimer.Stop();
         _balloon.Close();
         _player?.Abort();
@@ -341,16 +405,36 @@ public sealed class AssistantController : IDisposable
         _window.Present(frame, Character.Width, Character.Height, x, y, _scale);
     }
 
+    private IEnumerable<string> Gestures() =>
+        Character?.Animations
+            .Select(a => a.Name)
+            .Where(name => !name.StartsWith("Idle", StringComparison.OrdinalIgnoreCase)
+                && !name.StartsWith("Look", StringComparison.OrdinalIgnoreCase)
+                && !name.StartsWith("Gesture", StringComparison.OrdinalIgnoreCase)
+                && !NonGestureAnimations.Contains(name, StringComparer.OrdinalIgnoreCase))
+        ?? [];
+
     private void OnCharacterClicked()
     {
         _idleSince = DateTime.UtcNow;
+        if (_approval is not null)
+        {
+            return;
+        }
+
+        if (IsBusy)
+        {
+            ShowBalloon(ChatBalloons.Working(_status), activate: false);
+            return;
+        }
+
         if (_balloon.IsVisible)
         {
             CloseBalloon();
             return;
         }
 
-        ShowBalloon(BalloonScenarios.AnswerWizard());
+        ShowAskBalloon();
     }
 
     private void ShowContextMenu(int x, int y)
@@ -360,6 +444,7 @@ public sealed class AssistantController : IDisposable
             (MenuHide, "&Hide", true),
             (MenuOptions, "&Options...", true),
             (MenuChoose, "&Choose Assistant...", true),
+            (MenuNewTopic, "&New Topic", _chat?.HasHistory == true || IsBusy),
             (MenuAnimate, "&Animate!", true),
         ]);
 
@@ -374,6 +459,10 @@ public sealed class AssistantController : IDisposable
             case MenuChoose:
                 ChooseAssistantRequested?.Invoke(this, EventArgs.Empty);
                 break;
+            case MenuNewTopic:
+                NewConversation();
+                ShowAskBalloon();
+                break;
             case MenuAnimate:
                 Animate();
                 break;
@@ -385,16 +474,29 @@ public sealed class AssistantController : IDisposable
         _idleSince = DateTime.UtcNow;
         switch (id)
         {
-            case BalloonScenarios.SearchButton:
-                Search(_balloon.Question);
+            case ChatBalloons.AskButton:
+                Ask(_balloon.Question);
                 break;
-            case BalloonScenarios.OptionsButton:
+            case ChatBalloons.OptionsButton:
                 CloseBalloon();
                 OptionsRequested?.Invoke(this, EventArgs.Empty);
                 break;
-            case "yes":
+            case ChatBalloons.NewChatButton:
+                NewConversation();
+                ShowAskBalloon();
+                break;
+            case ChatBalloons.CancelButton:
+                CancelRequest();
                 CloseBalloon();
-                Play("Save");
+                break;
+            case ChatBalloons.AllowButton:
+                CompleteApproval(ToolApproval.Allow);
+                break;
+            case ChatBalloons.AllowAlwaysButton:
+                CompleteApproval(ToolApproval.AllowAlways);
+                break;
+            case ChatBalloons.DenyButton:
+                CompleteApproval(ToolApproval.Deny);
                 break;
             default:
                 CloseBalloon();
@@ -405,55 +507,203 @@ public sealed class AssistantController : IDisposable
     private void OnBalloonLabel(string id)
     {
         _idleSince = DateTime.UtcNow;
-        if (id == BalloonScenarios.SeeMoreId)
+        if (id == ChatBalloons.SeeMoreId && _pages.Count > 1)
         {
-            _resultsPage = (_resultsPage + 1) * ResultsPageSize < _results.Count ? _resultsPage + 1 : 0;
-            ShowResultsPage();
+            _page = (_page + 1) % _pages.Count;
+            ShowAnswerPage(_balloon.Question);
+        }
+    }
+
+    private void OnBalloonDismissed()
+    {
+        if (_approval is not null)
+        {
+            CompleteApproval(ToolApproval.Deny);
             return;
         }
 
+        CancelRequest();
         CloseBalloon();
-        var topic = HelpTopics.All.FirstOrDefault(t => t.Id == id);
-        if (id == "letter-help")
-        {
-            Play("Writing");
-        }
-        else if (topic is not null && !Play(topic.Animation))
-        {
-            Animate();
-        }
     }
 
-    private void Search(string question)
+    private void CompleteApproval(ToolApproval approval)
     {
-        if (string.IsNullOrWhiteSpace(question))
+        var pending = _approval;
+        _approval = null;
+        ShowBalloon(ChatBalloons.Working(_status), activate: false);
+        pending?.TrySetResult(approval);
+    }
+
+    private async void Ask(string question)
+    {
+        if (string.IsNullOrWhiteSpace(question) || Definition is null || IsBusy)
         {
             return;
         }
 
-        _results = HelpTopics.Search(question);
-        _resultsPage = 0;
-        if (_results.Count == 0)
+        _chat ??= CreateChat();
+        _animatedThisTurn = false;
+        _request = new CancellationTokenSource();
+        var cancellation = _request.Token;
+        try
         {
-            Play("Thinking");
-            ShowBalloon(new BalloonContent(
-                new BalloonText("What would you like to do?", Bold: true),
-                new BalloonText("I don't know what you mean. Please rephrase your question."),
-                new BalloonTextBox(question),
-                new BalloonButtons([new BalloonButton("&Options", BalloonScenarios.OptionsButton), new BalloonButton("&Search", BalloonScenarios.SearchButton)]) { DefaultIndex = 1 }));
+            var reply = await _chat.AskAsync(GetClient(), _settings.Settings.Model, question.Trim(), this, cancellation);
+            if (reply.IsError)
+            {
+                Play("Alert");
+                ShowBalloon(ChatBalloons.Problem(reply.Text));
+                return;
+            }
+
+            if (!_animatedThisTurn)
+            {
+                Play("Explain");
+            }
+
+            _pages = AnswerFormatter.Paginate(AnswerFormatter.ToPlainText(reply.Text));
+            _page = 0;
+            ShowAnswerPage();
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelled from the balloon, by hiding the assistant or by switching assistants.
+        }
+        catch (Exception e)
+        {
+            // For example no credentials at all: the SDK fails before sending anything.
+            Play("Alert");
+            var hint = _settings.ApiKey is null && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY"))
+                ? "I need a Claude API key before I can help. Click Options and paste one in."
+                : e.Message;
+            ShowBalloon(ChatBalloons.Problem(hint));
+        }
+        finally
+        {
+            if (_approval is { } approval)
+            {
+                _approval = null;
+                approval.TrySetCanceled();
+            }
+
+            if (_request?.Token == cancellation)
+            {
+                _request.Dispose();
+                _request = null;
+            }
+        }
+    }
+
+    private void ShowAnswerPage(string followUp = "")
+    {
+        if (_pages.Count == 0)
+        {
             return;
         }
 
-        Play("Searching");
-        ShowResultsPage(question);
+        ShowBalloon(ChatBalloons.Answer(_pages[_page], hasMore: _pages.Count > 1, followUp));
     }
 
-    private void ShowResultsPage(string? question = null)
+    private void CancelRequest()
     {
-        var page = _results.Skip(_resultsPage * ResultsPageSize).Take(ResultsPageSize).Select(t => (t.Id, t.Title)).ToList();
-        var content = BalloonScenarios.SearchResults(page, hasMore: _results.Count > ResultsPageSize);
-        var text = question ?? _balloon.Question;
-        ShowBalloon(new BalloonContent(
-            [.. content.Blocks.Select(b => b is BalloonTextBox box ? box with { InitialText = text } : b)]));
+        if (_request is { } request)
+        {
+            _request = null;
+            request.Cancel();
+        }
+
+        if (_approval is { } approval)
+        {
+            _approval = null;
+            approval.TrySetCanceled();
+        }
+    }
+
+    private AnthropicClient GetClient()
+    {
+        var key = _settings.ApiKey;
+        if (_client is null || key != _clientKey)
+        {
+            // Without a saved key the SDK finds one itself (ANTHROPIC_API_KEY or an `ant auth login` profile).
+            _client = key is null ? new AnthropicClient() : new AnthropicClient { ApiKey = key };
+            _clientKey = key;
+        }
+
+        return _client;
+    }
+
+    private AssistantChat CreateChat()
+    {
+        var animations = Gestures().Order(StringComparer.OrdinalIgnoreCase).ToList();
+        var tools = new List<LocalTool>();
+        if (animations.Count > 0)
+        {
+            var schemaNode = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["animation"] = new JsonObject
+                    {
+                        ["type"] = "string",
+                        ["enum"] = new JsonArray([.. animations.Select(a => (JsonNode?)JsonValue.Create(a))]),
+                        ["description"] = "The animation to play.",
+                    },
+                },
+                ["required"] = new JsonArray("animation"),
+            };
+            using var document = JsonDocument.Parse(schemaNode.ToJsonString());
+            var schema = document.RootElement.Clone();
+            tools.Add(new LocalTool(
+                PlayAnimationTool,
+                "Plays one of your character's animations on screen, for example to greet, explain, celebrate or look busy. It runs while you keep talking.",
+                schema,
+                input =>
+                {
+                    var name = input.TryGetValue("animation", out var value) ? value.GetString() : null;
+                    if (name is null || !animations.Contains(name, StringComparer.OrdinalIgnoreCase))
+                    {
+                        throw new ArgumentException($"Unknown animation. Choose one of: {string.Join(", ", animations)}.");
+                    }
+
+                    _animatedThisTurn = Play(name);
+                    return _animatedThisTurn ? $"Playing {name}." : "The animation could not be played right now.";
+                }));
+        }
+
+        return new AssistantChat(BuildSystemPrompt(), tools, Mcp);
+    }
+
+    private string BuildSystemPrompt()
+    {
+        var strings = Strings;
+        var name = strings?.Name ?? Definition?.Key ?? "the Office Assistant";
+        var prompt = new System.Text.StringBuilder();
+        prompt.AppendLine($"You are {name}, one of the Office Assistant characters from Microsoft Office, now living on the user's Windows desktop as a helpful companion.");
+        if (!string.IsNullOrWhiteSpace(strings?.Description))
+        {
+            prompt.AppendLine($"Your character description: {strings.Description}");
+        }
+
+        prompt.AppendLine();
+        prompt.AppendLine("You talk to the user through a small yellow speech balloon next to your character, about 300 pixels wide.");
+        prompt.AppendLine("- Keep answers short, warm and to the point: usually one to three short paragraphs. Longer answers are split into pages the user has to click through.");
+        prompt.AppendLine("- Write plain text. The balloon can't show Markdown, so leave out headings, bold, tables and code blocks. Simple lists starting with \"- \" are fine.");
+        prompt.AppendLine("- Stay in character, with the cheerful helpfulness the Office Assistants were known for, but put being useful first.");
+        if (Gestures().Any())
+        {
+            prompt.AppendLine($"- Use the {PlayAnimationTool} tool to react with your character when it fits, such as greeting, thinking, explaining or celebrating. One animation per answer is plenty.");
+        }
+
+        prompt.AppendLine("- Tools whose names start with a server name come from the user's MCP servers. Use them when they help. The user approves each call; if they decline, carry on without it and don't ask again for the same thing.");
+        prompt.AppendLine($"Today's date is {DateTime.Now:dddd d MMMM yyyy}.");
+
+        if (!string.IsNullOrWhiteSpace(Profile?.Instructions))
+        {
+            prompt.AppendLine();
+            prompt.AppendLine("Additional instructions from the user:");
+            prompt.AppendLine(Profile.Instructions.Trim());
+        }
+
+        return prompt.ToString();
     }
 }

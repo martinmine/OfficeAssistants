@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:OfficeAssistant.ViewModels"
     mc:Ignorable="d">
 
     <Page.Resources>
@@ -140,23 +141,141 @@
                     </StackPanel>
                 </Border>
 
-                <!--  Balloons recreated from Office XP  -->
+                <!--  Claude: the model the assistant talks with  -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel Spacing="12">
-                        <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Balloons" />
-                        <VariableSizedWrapGrid
-                            ItemHeight="40"
-                            ItemWidth="220"
-                            Orientation="Horizontal">
-                            <Button Command="{x:Bind ViewModel.ShowBalloonCommand}" CommandParameter="answer" Content="What would you like to do?" />
-                            <Button Command="{x:Bind ViewModel.ShowBalloonCommand}" CommandParameter="autocomplete" Content="AutoComplete tip" />
-                            <Button Command="{x:Bind ViewModel.ShowBalloonCommand}" CommandParameter="save" Content="Save changes alert" />
-                            <Button Command="{x:Bind ViewModel.ShowBalloonCommand}" CommandParameter="letter" Content="Letter Wizard tip" />
-                            <Button Command="{x:Bind ViewModel.ShowBalloonCommand}" CommandParameter="greeting" Content="Greeting" />
-                            <Button Command="{x:Bind ViewModel.ShowBalloonCommand}" CommandParameter="reminder" Content="Reminder" />
-                            <Button Command="{x:Bind ViewModel.ShowBalloonCommand}" CommandParameter="about" Content="About the assistant" />
-                            <Button Command="{x:Bind ViewModel.CloseBalloonCommand}" Content="Close balloon" />
-                        </VariableSizedWrapGrid>
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Claude" />
+                            <Button
+                                Grid.Column="1"
+                                Command="{x:Bind ViewModel.AskAssistantCommand}"
+                                Content="Ask the assistant"
+                                Style="{StaticResource AccentButtonStyle}" />
+                            <Button
+                                Grid.Column="2"
+                                Command="{x:Bind ViewModel.NewConversationCommand}"
+                                Content="New conversation" />
+                        </Grid>
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="The assistant answers with Claude. Click it, type a question and click Ask; it remembers the conversation until you start a new topic."
+                            TextWrapping="Wrap" />
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <PasswordBox
+                                Header="API key"
+                                Password="{x:Bind ViewModel.ApiKeyInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                PlaceholderText="sk-ant-..." />
+                            <Button
+                                Grid.Column="1"
+                                VerticalAlignment="Bottom"
+                                Command="{x:Bind ViewModel.SaveApiKeyCommand}"
+                                Content="Save key" />
+                            <Button
+                                Grid.Column="2"
+                                VerticalAlignment="Bottom"
+                                Command="{x:Bind ViewModel.ClearApiKeyCommand}"
+                                Content="Remove key" />
+                        </Grid>
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="{x:Bind ViewModel.ApiKeyStatus, Mode=OneWay}"
+                            TextWrapping="Wrap" />
+                        <ComboBox
+                            MinWidth="260"
+                            Header="Model"
+                            IsEditable="True"
+                            ItemsSource="{x:Bind ViewModel.Models}"
+                            Text="{x:Bind ViewModel.Model, Mode=TwoWay}" />
+                    </StackPanel>
+                </Border>
+
+                <!--  The active assistant's instructions and MCP servers  -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel Spacing="12">
+                        <Grid>
+                            <TextBlock Style="{StaticResource SubtitleTextBlockStyle}">
+                                <Run Text="Instructions and tools for" />
+                                <Run Text="{x:Bind ViewModel.ActiveName, Mode=OneWay}" />
+                            </TextBlock>
+                            <Button
+                                HorizontalAlignment="Right"
+                                Command="{x:Bind ViewModel.ReconnectMcpCommand}"
+                                Content="Reconnect" />
+                        </Grid>
+                        <TextBox
+                            MinHeight="72"
+                            AcceptsReturn="True"
+                            Header="Instructions"
+                            PlaceholderText="Optional. For example: I work in the finance team, so prefer Excel examples."
+                            Text="{x:Bind ViewModel.Instructions, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            TextWrapping="Wrap" />
+                        <TextBox
+                            MinHeight="160"
+                            AcceptsReturn="True"
+                            FontFamily="Cascadia Mono, Consolas"
+                            Header="MCP servers (JSON)"
+                            IsSpellCheckEnabled="False"
+                            PlaceholderText="{}{&#x0a;  &quot;filesystem&quot;: {&#x0a;    &quot;command&quot;: &quot;npx&quot;,&#x0a;    &quot;args&quot;: [&quot;-y&quot;, &quot;@modelcontextprotocol/server-filesystem&quot;, &quot;C:\\Users\\you\\Documents&quot;]&#x0a;  },&#x0a;  &quot;remote&quot;: { &quot;url&quot;: &quot;https://example.com/mcp&quot; }&#x0a;}"
+                            Text="{x:Bind ViewModel.McpServersJson, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            TextWrapping="NoWrap" />
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="Same format as Claude Desktop's mcpServers: &quot;command&quot; with &quot;args&quot;, &quot;env&quot; and &quot;cwd&quot; for a local server, or &quot;url&quot; with &quot;headers&quot; for a remote one. The assistant asks before each tool call; add &quot;alwaysAllow&quot;: [&quot;tool_name&quot;] (or [&quot;*&quot;]) to skip asking, or &quot;disabled&quot;: true to turn a server off."
+                            TextWrapping="Wrap" />
+                        <InfoBar
+                            IsClosable="False"
+                            IsOpen="{x:Bind ViewModel.HasMcpError, Mode=OneWay}"
+                            Message="{x:Bind ViewModel.McpError, Mode=OneWay}"
+                            Severity="Error" />
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button
+                                Command="{x:Bind ViewModel.SaveProfileCommand}"
+                                Content="Save and connect"
+                                Style="{StaticResource AccentButtonStyle}" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind ViewModel.ProfileStatus, Mode=OneWay}" />
+                        </StackPanel>
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.McpServers, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:McpServerItem">
+                                    <InfoBar
+                                        Title="{x:Bind Name}"
+                                        Margin="0,0,0,4"
+                                        IsClosable="False"
+                                        IsOpen="True"
+                                        Message="{x:Bind Summary}"
+                                        Severity="{x:Bind Severity}">
+                                        <TextBlock
+                                            Margin="0,0,0,12"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind Tools}"
+                                            TextWrapping="Wrap" />
+                                    </InfoBar>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            IsTextSelectionEnabled="True"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            TextWrapping="Wrap">
+                            <Run Text="Settings file:" />
+                            <Run Text="{x:Bind ViewModel.SettingsPath}" />
+                        </TextBlock>
                     </StackPanel>
                 </Border>
 
@@ -191,31 +310,6 @@
                                 </DataTemplate>
                             </GridView.ItemTemplate>
                         </GridView>
-                    </StackPanel>
-                </Border>
-
-                <!--  Localized strings from the character file  -->
-                <Border Style="{StaticResource CardStyle}">
-                    <StackPanel Spacing="8">
-                        <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Localized strings" />
-                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind ViewModel.LocalizedName, Mode=OneWay}" IsTextSelectionEnabled="True" />
-                        <TextBlock Text="{x:Bind ViewModel.LocalizedDescription, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
-                        <TextBlock Margin="0,8,0,0" Style="{StaticResource BodyStrongTextBlockStyle}" Text="Greetings" />
-                        <ItemsControl ItemsSource="{x:Bind ViewModel.Greetings, Mode=OneWay}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="x:String">
-                                    <TextBlock Text="{x:Bind}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                        <TextBlock Margin="0,8,0,0" Style="{StaticResource BodyStrongTextBlockStyle}" Text="Reminders" />
-                        <ItemsControl ItemsSource="{x:Bind ViewModel.Reminders, Mode=OneWay}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="x:String">
-                                    <TextBlock Text="{x:Bind}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
                     </StackPanel>
                 </Border>
             </StackPanel>
