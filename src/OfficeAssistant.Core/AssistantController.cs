@@ -26,12 +26,10 @@ public sealed class AssistantController : IDisposable, IChatHost
     private readonly BalloonCoordinator _balloon;
     private readonly ConversationController _conversation;
 
-    /// <param name="settings">The Claude settings and the assistants' profiles.</param>
-    /// <param name="balloon">The window that draws the balloon; the controller disposes it.</param>
-    public AssistantController(SettingsStore settings, IBalloonView balloon)
+    public AssistantController(SettingsStore settings)
     {
         _character = new CharacterPresenter(settings.Settings.PixelSize);
-        _balloon = new BalloonCoordinator(balloon, _character);
+        _balloon = new BalloonCoordinator(_character);
         _conversation = new ConversationController(settings, _character, _balloon);
 
         _character.VisibilityChanged += (_, _) => VisibilityChanged?.Invoke(this, EventArgs.Empty);

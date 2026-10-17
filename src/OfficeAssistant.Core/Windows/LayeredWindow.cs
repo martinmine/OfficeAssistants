@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using OfficeAssistant.Core.Rendering;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Gdi;
@@ -202,7 +203,7 @@ public abstract unsafe class LayeredWindow : IDisposable
 
         FreeBitmap();
         _memoryDc = PInvoke.CreateCompatibleDC(default);
-        _bitmap = CreateDib(_memoryDc, width, height, out _bits);
+        _bitmap = GdiCanvas.CreateDib(_memoryDc, width, height, out _bits);
         _oldBitmap = PInvoke.SelectObject(_memoryDc, _bitmap);
         _bitmapWidth = width;
         _bitmapHeight = height;
@@ -223,25 +224,8 @@ public abstract unsafe class LayeredWindow : IDisposable
         _bits = null;
     }
 
-    /// <summary>Creates a top-down 32-bit DIB section and returns its pixel pointer.</summary>
-    private static HBITMAP CreateDib(HDC dc, int width, int height, out uint* bits)
-    {
-        var info = new BITMAPINFO
-        {
-            bmiHeader = new BITMAPINFOHEADER
-            {
-                biSize = (uint)sizeof(BITMAPINFOHEADER),
-                biWidth = width,
-                biHeight = -height,
-                biPlanes = 1,
-                biBitCount = 32,
-            },
-        };
-        void* pointer;
-        var bitmap = PInvoke.CreateDIBSection(dc, &info, DIB_USAGE.DIB_RGB_COLORS, &pointer, default, 0);
-        bits = (uint*)pointer;
-        return bitmap;
-    }
+    private protected static void SetCursor(PCWSTR cursorId) =>
+        PInvoke.SetCursor(PInvoke.LoadCursor(default, cursorId));
 
     private static void RegisterClass()
     {

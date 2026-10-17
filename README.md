@@ -9,10 +9,9 @@ assistant [MCP](https://modelcontextprotocol.io) servers and it can use their to
 read your files, search your notes, check your calendar, or whatever the servers offer.
 
 It's a WinUI 3 app written in C#. Characters, animations, sounds and localized strings are
-read straight from the original Microsoft Agent files. The assistant is drawn pixel for
-pixel (the tests compare it with the reference screenshots in `Screenshots/` and require zero
-differing pixels), and its Office XP balloon is drawn with XAML, so typing in it supports IME
-input, the emoji panel, spell checking and screen readers.
+read straight from the original Microsoft Agent files, and the assistant and its balloons
+are drawn pixel for pixel: the tests compare the output with the reference screenshots in
+`Screenshots/` and require zero differing pixels.
 
 ## Requirements
 
@@ -144,9 +143,9 @@ runtime with **Add assistant files (.acs, .acg)...**.
 dotnet test tests\AcsFormat.Tests
 ```
 
-The tests parse every file in `Assistants/`, check the localized strings, animation
-playback, balloon placement, Markdown conversion and the conversation helpers, and render
-Clippit for a pixel comparison with the screenshots.
+The tests parse every file in `Assistants/`, check the localized strings, text editing and
+animation playback, and render Clippit and four balloons for pixel comparisons with the
+screenshots.
 
 ## Developer tool
 
@@ -158,6 +157,9 @@ dotnet run --project tools\AcsTool -- info Assistants\CLIPPIT.ACS
 
 # Every frame as PNG and every sound as WAV
 dotnet run --project tools\AcsTool -- export Assistants\CLIPPIT.ACS out\clippit
+
+# A balloon as PNG (answer, autocomplete, results, save or letter)
+dotnet run --project tools\AcsTool -- balloon save out\save.png
 ```
 
 `tools/extract_sprites.py` (Python with Pillow) regenerates the balloon bullet, arrow and
@@ -168,8 +170,8 @@ warning icon from the screenshots into `src/OfficeAssistant.Core/Rendering/Ballo
 | Path | Contents |
 |------|----------|
 | `src/AcsFormat` | Platform-neutral parser for `.acs`/`.acg` files: localized strings, states, animations (frames, branches, exit branches, mouth overlays), images with the Agent decompressor, and WAVE sounds. |
-| `src/OfficeAssistant.Core` | Windows runtime: the character's layered Win32 window, balloon content and placement, animation and sound playback, idling, and the conversation with Claude and MCP servers (`Chat/`). |
-| `src/OfficeAssistant` | The WinUI 3 app, including the XAML balloon (`Balloon/`). |
+| `src/OfficeAssistant.Core` | Windows runtime: layered Win32 windows for the character and balloon, the Office XP balloon renderer, animation and sound playback, idling, and the conversation with Claude and MCP servers (`Chat/`). |
+| `src/OfficeAssistant` | The WinUI 3 app. |
 | `tools/AcsTool` | Developer CLI described above. |
 | `tests/AcsFormat.Tests` | Unit and pixel-comparison tests. |
 | `Assistants/` | Original assistant files. |

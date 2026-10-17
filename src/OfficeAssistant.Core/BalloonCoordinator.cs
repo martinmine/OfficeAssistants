@@ -1,28 +1,22 @@
 using OfficeAssistant.Core.Rendering;
+using OfficeAssistant.Core.Windows;
 
 namespace OfficeAssistant.Core;
 
 /// <summary>Keeps the balloon next to the character and only shows it while the character is shown.</summary>
 internal sealed class BalloonCoordinator : IDisposable
 {
-    private readonly IBalloonView _window;
+    private readonly BalloonWindow _window = new();
     private readonly CharacterPresenter _character;
 
-    public BalloonCoordinator(IBalloonView window, CharacterPresenter character)
+    public BalloonCoordinator(CharacterPresenter character)
     {
-        _window = window;
         _character = character;
-        _character.BoundsChanged += (_, _) =>
-        {
-            if (_window.IsVisible)
-            {
-                _window.UpdateFrame(Frame);
-            }
-        };
+        _character.BoundsChanged += (_, _) => _window.UpdateAnchor(_character.FrameBounds, _character.Scale);
     }
 
     /// <summary>The balloon's window, for its button, label and dismiss events.</summary>
-    public IBalloonView Window => _window;
+    public BalloonWindow Window => _window;
 
     public bool IsVisible => _window.IsVisible;
 
@@ -36,19 +30,10 @@ internal sealed class BalloonCoordinator : IDisposable
             return;
         }
 
-        _window.Show(content, Frame, activate);
+        _window.ShowContent(content, _character.FrameBounds, _character.Scale, activate);
     }
 
     public void Close() => _window.Close();
 
     public void Dispose() => _window.Dispose();
-
-    private BalloonFrame Frame
-    {
-        get
-        {
-            var (x, y, width, height) = _character.FrameBounds;
-            return new BalloonFrame(x, y, width, height, _character.Scale);
-        }
-    }
 }

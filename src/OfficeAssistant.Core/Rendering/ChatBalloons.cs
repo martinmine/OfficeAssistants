@@ -4,14 +4,14 @@ namespace OfficeAssistant.Core.Rendering;
 public static class ChatBalloons
 {
     public const string AskButton = "ask";
-    public const string OptionsButton = "options";
+    public const string OptionsButton = BalloonScenarios.OptionsButton;
     public const string NewChatButton = "new";
     public const string CancelButton = "cancel";
     public const string OkButton = "ok";
     public const string AllowButton = "allow";
     public const string AllowAlwaysButton = "allow-always";
     public const string DenyButton = "deny";
-    public const string SeeMoreId = "seemore";
+    public const string SeeMoreId = BalloonScenarios.SeeMoreId;
     public const string AskPlaceholder = "Type your question here and then click Ask.";
 
     private const int MaxArgumentLength = 60;
