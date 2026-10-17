@@ -137,25 +137,29 @@ public class ChatTests
     }
 
     [Fact]
-    public void ChatBalloonsLayOut()
+    public void ChatBalloonsHaveTheExpectedBlocks()
     {
-        using var renderer = new BalloonRenderer();
-        var input = new Dictionary<string, JsonElement> { ["path"] = JsonSerializer.SerializeToElement(new string('x', 200)) };
-        BalloonContent[] balloons =
-        [
-            ChatBalloons.Ask(),
-            ChatBalloons.Ask("Hi there!"),
-            ChatBalloons.Working("Thinking..."),
-            ChatBalloons.Answer("First paragraph.\n\nSecond paragraph.", hasMore: true),
-            ChatBalloons.Problem("Something broke."),
-            ChatBalloons.ToolApproval("files", "read_file", input),
-        ];
+        var ask = ChatBalloons.Ask("Hi there!");
+        Assert.Collection(
+            ask.Blocks,
+            b => Assert.Equal(new BalloonText("Hi there!"), b),
+            b => Assert.Equal(new BalloonText("What would you like to do?", Bold: true), b),
+            b => Assert.True(b is BalloonTextBox { IsPlaceholder: true, InitialText: ChatBalloons.AskPlaceholder }),
+            b => Assert.True(b is BalloonButtons { DefaultIndex: 1 } buttons && buttons.Buttons[1].Id == ChatBalloons.AskButton));
 
-        foreach (var balloon in balloons)
-        {
-            var layout = renderer.Measure(balloon, new BalloonState());
-            Assert.InRange(layout.Width, 1, 300);
-            Assert.True(layout.Height > 0);
-        }
+        var answer = ChatBalloons.Answer("First paragraph.\n\nSecond paragraph.", hasMore: true, followUp: "and?");
+        Assert.Equal(2, answer.Blocks.OfType<BalloonText>().Count());
+        Assert.Contains(answer.Blocks, b => b is BalloonSeeMore { Id: ChatBalloons.SeeMoreId });
+        Assert.Contains(answer.Blocks, b => b is BalloonTextBox { InitialText: "and?", IsPlaceholder: false });
+
+        var input = new Dictionary<string, JsonElement> { ["path"] = JsonSerializer.SerializeToElement(new string('x', 200)) };
+        var approval = ChatBalloons.ToolApproval("files", "read_file", input);
+        var arguments = Assert.IsType<BalloonText>(approval.Blocks[1]);
+        Assert.StartsWith("path: xxx", arguments.Text);
+        Assert.EndsWith("...", arguments.Text);
+        Assert.True(arguments.Text.Length < 80);
+        Assert.Equal(
+            [ChatBalloons.AllowButton, ChatBalloons.AllowAlwaysButton, ChatBalloons.DenyButton],
+            approval.Blocks.OfType<BalloonButtons>().Single().Buttons.Select(b => b.Id));
     }
 }

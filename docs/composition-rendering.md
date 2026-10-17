@@ -18,9 +18,8 @@ the layered window can't do:
   [MainPage.xaml.cs](../src/OfficeAssistant/MainPage.xaml.cs), which today copies pixels
   into a `WriteableBitmap` byte by byte on every frame
 
-The balloon is **out of scope**. It stays a GDI-painted layered window
-([BalloonWindow.cs](../src/OfficeAssistant.Core/Windows/BalloonWindow.cs)) so its pixel tests
-keep passing.
+The balloon is **out of scope**. It is already drawn with XAML in its own window
+([BalloonWindow.xaml](../src/OfficeAssistant/Balloon/BalloonWindow.xaml)).
 
 ## Current pipeline (what gets replaced)
 
@@ -161,7 +160,7 @@ events. Check this in the spike.
 |---|---|
 | `AcsFrameRenderer` | Kept. It's still the reference for pixel tests, and the source of the hit-test regions if the `.acs` region data isn't parsed. |
 | `AnimationPlayer` | Takes an `IFramePresenter` (or `Action<AcsFrame>`) instead of `Action<uint[]>`. Timing, branching, exit paths and sounds are unchanged. `CurrentFrame` (a pixel buffer) becomes the current `AcsFrame`. |
-| `LayeredWindow.Present`, `ScaleNearest` | Removed for the character. They stay for `BalloonWindow`, unless the balloon is moved too. |
+| `LayeredWindow.Present`, `ScaleNearest` | Removed; the character was their only user. |
 | `CharacterWindow` | Keeps its mouse and menu handling and loses the layered style. It gains region updates. |
 | `AssistantController.Present/Scale` | `Scale` sets `root.Scale`, the window size and the region cache key. "Keep the feet in place" stays. |
 | `MainPage.RedrawPreview` | Replaced by a `XamlFramePresenter` on the preview element (`ElementCompositionPreview.SetElementChildVisual`) with the same atlas. The `WriteableBitmap` loop goes away. |

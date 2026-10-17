@@ -9,7 +9,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AcsFormat\AcsFormat.csproj" />
-    <ProjectReference Include="..\..\src\OfficeAssistant.Core\OfficeAssistant.Core.csproj" />
   </ItemGroup>
 
 </Project>

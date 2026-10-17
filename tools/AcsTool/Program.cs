@@ -1,9 +1,7 @@
 ﻿using AcsFormat;
 using AcsTool;
-using OfficeAssistant.Core.Rendering;
 
-// Developer tool: inspect ACS/ACG files, export their frames and sounds, and render
-// balloons to PNG for pixel comparisons against the reference screenshots.
+// Developer tool: inspect ACS/ACG files and export their frames and sounds.
 if (args.Length == 0)
 {
     PrintUsage();
@@ -20,10 +18,6 @@ switch (args[0].ToLowerInvariant())
         Export(AcsCharacter.Load(args[1]), args[2]);
         return 0;
 
-    case "balloon" when args.Length >= 3:
-        RenderBalloon(args[1], args[2], args.Length >= 4 ? int.Parse(args[3]) : 90, args.Length >= 5 && args[4] == "top");
-        return 0;
-
     default:
         PrintUsage();
         return 1;
@@ -35,7 +29,6 @@ static void PrintUsage()
         Usage:
           AcsTool info <file.acs|file.acg>
           AcsTool export <file.acs|file.acg> <output-folder>
-          AcsTool balloon <answer|autocomplete|results|save|letter> <out.png> [tailX] [top]
         """);
 }
 
@@ -100,43 +93,4 @@ static void Export(AcsCharacter character, string folder)
     }
 
     Console.WriteLine($"Exported {character.Animations.Sum(a => a.Frames.Count)} frames and {character.SoundCount} sounds to {folder}");
-}
-
-static void RenderBalloon(string scenario, string output, int tailX, bool tailOnTop)
-{
-    var state = new BalloonState();
-    BalloonContent content;
-    switch (scenario)
-    {
-        case "answer":
-            content = BalloonScenarios.AnswerWizard();
-            state.TextBoxText = BalloonScenarios.QuestionPlaceholder;
-            break;
-        case "autocomplete":
-            content = BalloonScenarios.TipWithAnswerWizard("Word can complete things that you frequently type. Just press enter to accept the completion.");
-            state.TextBoxText = BalloonScenarios.QuestionPlaceholder;
-            state.SelectAll();
-            break;
-        case "results":
-            content = BalloonScenarios.SearchResults(
-                [("1", "Print merged documents"), ("2", "Cancel printing"), ("3", "Print a document to a file"), ("4", "Print a document"), ("5", "WEB: Printing troubleshooter")],
-                hasMore: true);
-            state.TextBoxText = "Print";
-            state.SelectAll();
-            break;
-        case "save":
-            content = BalloonScenarios.SaveChanges();
-            break;
-        case "letter":
-            content = BalloonScenarios.LetterTip();
-            break;
-        default:
-            throw new ArgumentException($"Unknown scenario '{scenario}'.");
-    }
-
-    using var renderer = new BalloonRenderer();
-    var layout = renderer.Measure(content, state);
-    var bitmap = renderer.Render(layout, state, tailOnTop ? BalloonTailSide.Top : BalloonTailSide.Bottom, tailX);
-    PngWriter.Write(output, bitmap.Width, bitmap.Height, bitmap.Pixels);
-    Console.WriteLine($"{scenario}: box {layout.Width}x{layout.Height}, bitmap {bitmap.Width}x{bitmap.Height}");
 }
