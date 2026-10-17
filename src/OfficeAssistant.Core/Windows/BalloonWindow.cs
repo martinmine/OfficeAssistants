@@ -1,24 +1,24 @@
+using OfficeAssistant.Core.Interop;
 using OfficeAssistant.Core.Rendering;
 using Windows.Win32;
+using Windows.Win32.UI.Input.KeyboardAndMouse;
 
 namespace OfficeAssistant.Core.Windows;
 
 /// <summary>
 /// The Office XP balloon, painted by <see cref="BalloonRenderer"/> and placed next to
-/// the character. It never takes the focus: typing happens in an
-/// <see cref="IBalloonTextInput"/> that sits over the Answer Wizard box while the user edits,
-/// and the balloon draws the text itself again afterwards.
+/// the character. Handles its own clicks and the Answer Wizard text box.
 /// </summary>
-public sealed class BalloonWindow : LayeredWindow
+public sealed unsafe class BalloonWindow : LayeredWindow
 {
     // Measured from the screenshots: the tail opening starts 29 px into the character
     // frame and the box sits 6 px above the frame; the tail tip reaches 9 px into it.
     private const int TailOffsetInFrame = 29;
     private const int GapAboveFrame = 6;
+    private const int CaretTimerId = 1;
 
     private readonly BalloonRenderer _renderer = new();
     private readonly BalloonState _state = new();
-    private readonly IBalloonTextInput _input;
     private BalloonContent? _content;
     private string? _placeholder;
     private BalloonLayout? _layout;
@@ -26,14 +26,12 @@ public sealed class BalloonWindow : LayeredWindow
     private (int X, int Y, int Width, int Height) _anchor;
     private int _anchorScale = 1;
     private BalloonHit _pressed = BalloonHit.None;
+    private bool _trackingLeave;
+    private bool _selecting;
 
-    public BalloonWindow(IBalloonTextInput input)
-        : base(activatable: false)
+    public BalloonWindow()
+        : base(activatable: true)
     {
-        _input = input;
-        _input.Submitted += (_, _) => OnSubmitted();
-        _input.Dismissed += (_, _) => Dismissed?.Invoke(this, EventArgs.Empty);
-        _input.EditingEnded += (_, _) => OnEditingEnded();
     }
 
     /// <summary>A label (bulleted item or "See more...") was clicked.</summary>
@@ -47,34 +45,29 @@ public sealed class BalloonWindow : LayeredWindow
     public BalloonContent? Content => _content;
 
     /// <summary>Current text of the Answer Wizard box (empty when it still shows the placeholder).</summary>
-    public string Question
-    {
-        get
-        {
-            var text = _input.IsEditing ? _input.Text : _state.TextBoxText;
-            return text == _placeholder ? string.Empty : text;
-        }
-    }
+    public string Question => _state.TextBoxText == _placeholder ? string.Empty : _state.TextBoxText;
 
     public bool HasTextBox => _content?.Blocks.Any(b => b is BalloonTextBox) == true;
 
-    /// <summary>Shows content anchored to the character frame (screen pixels); with <paramref name="activate"/> the text box takes the focus.</summary>
+    /// <summary>Shows content anchored to the character frame (screen pixels).</summary>
     public void ShowContent(BalloonContent content, (int X, int Y, int Width, int Height) frame, int scale, bool activate)
     {
-        _input.EndEditing();
         _content = content;
         var box = content.Blocks.OfType<BalloonTextBox>().FirstOrDefault();
         _state.TextBoxText = box?.InitialText ?? string.Empty;
         _placeholder = box is { IsPlaceholder: true } ? box.InitialText : null;
         _state.TextBoxFocused = false;
+        _selecting = false;
         _anchor = frame;
         _anchorScale = scale;
         _layout = _renderer.Measure(content, _state);
         Repaint();
-        Show();
+        Show(activate && HasTextBox);
         if (activate && HasTextBox)
         {
-            BeginEditing(selectAll: true);
+            PInvoke.SetForegroundWindow(Hwnd);
+            _state.SelectAll();
+            SetTextBoxFocus(true);
         }
     }
 
@@ -91,7 +84,13 @@ public sealed class BalloonWindow : LayeredWindow
 
     public void Close()
     {
-        _input.EndEditing();
+        PInvoke.KillTimer(Hwnd, CaretTimerId);
+        if (_selecting)
+        {
+            _selecting = false;
+            PInvoke.ReleaseCapture();
+        }
+
         _content = null;
         _layout = null;
         Hide();
@@ -101,27 +100,73 @@ public sealed class BalloonWindow : LayeredWindow
     {
         switch (message)
         {
-            case PInvoke.WM_MOUSEACTIVATE:
-                return (nint)PInvoke.MA_NOACTIVATE;
+            case PInvoke.WM_ACTIVATE:
+                if (NativeHelpers.LowWord((nuint)wParam) == 0)
+                {
+                    // Deactivated: the box loses focus and hides its selection.
+                    SetTextBoxFocus(false);
+                }
+
+                return 0;
 
             case PInvoke.WM_SETCURSOR:
                 UpdateCursor();
                 return 1;
 
+            case PInvoke.WM_MOUSEMOVE:
+                if (!_trackingLeave)
+                {
+                    var tme = new TRACKMOUSEEVENT
+                    {
+                        cbSize = (uint)sizeof(TRACKMOUSEEVENT),
+                        dwFlags = TRACKMOUSEEVENT_FLAGS.TME_LEAVE,
+                        hwndTrack = Hwnd,
+                    };
+                    _trackingLeave = PInvoke.TrackMouseEvent(ref tme);
+                }
+
+                if (_selecting)
+                {
+                    _state.Select(_state.AnchorIndex, TextIndexAtCursor());
+                    Repaint();
+                }
+
+                return 0;
+
+            case PInvoke.WM_MOUSELEAVE:
+                _trackingLeave = false;
+                return 0;
+
             case PInvoke.WM_LBUTTONDOWN:
-            case PInvoke.WM_LBUTTONDBLCLK:
-                // The second click of a double-click arrives instead of a button-down.
                 _pressed = HitTestCursor();
                 if (_pressed.Kind == BalloonHitKind.TextBox)
                 {
-                    // The question prompt is replaced as a whole, like in Office.
-                    BeginEditing(selectAll: _state.TextBoxText == _placeholder);
+                    OnTextBoxMouseDown();
+                }
+
+                return 0;
+
+            case PInvoke.WM_LBUTTONDBLCLK:
+                // The second click of a double-click arrives instead of a button-down.
+                _pressed = HitTestCursor();
+                if (_pressed.Kind == BalloonHitKind.TextBox && _state.TextBoxFocused)
+                {
+                    var (start, end) = TextEditing.WordAt(_state.TextBoxText, TextIndexAtCursor());
+                    _state.Select(start, end);
+                    Repaint();
                 }
 
                 return 0;
 
             case PInvoke.WM_LBUTTONUP:
             {
+                if (_selecting)
+                {
+                    _selecting = false;
+                    PInvoke.ReleaseCapture();
+                    return 0;
+                }
+
                 var hit = HitTestCursor();
                 var pressed = _pressed;
                 _pressed = BalloonHit.None;
@@ -141,49 +186,201 @@ public sealed class BalloonWindow : LayeredWindow
 
                 return 0;
             }
+
+            case PInvoke.WM_CAPTURECHANGED:
+                _selecting = false;
+                return 0;
+
+            case PInvoke.WM_TIMER when wParam == CaretTimerId:
+                _state.CaretVisible = !_state.CaretVisible;
+                Repaint();
+                return 0;
+
+            case PInvoke.WM_KEYDOWN:
+                OnKeyDown((VIRTUAL_KEY)wParam);
+                return 0;
+
+            case PInvoke.WM_CHAR:
+                OnChar((char)wParam);
+                return 0;
         }
 
         return null;
     }
 
-    private void BeginEditing(bool selectAll)
+    private void OnTextBoxMouseDown()
     {
-        if (_bitmap?.TextBox is not { } box)
+        if (!_state.TextBoxFocused)
+        {
+            PInvoke.SetForegroundWindow(Hwnd);
+
+            // The question prompt is replaced as a whole, like in Office.
+            if (_state.TextBoxText == _placeholder)
+            {
+                _state.SelectAll();
+                SetTextBoxFocus(true);
+                return;
+            }
+
+            SetTextBoxFocus(true);
+        }
+
+        var index = TextIndexAtCursor();
+        _state.Select(NativeHelpers.IsKeyDown(VIRTUAL_KEY.VK_SHIFT) ? _state.AnchorIndex : index, index);
+        _state.CaretVisible = true;
+        _selecting = true;
+        PInvoke.SetCapture(Hwnd);
+        Repaint();
+    }
+
+    private void OnKeyDown(VIRTUAL_KEY key)
+    {
+        if (key == VIRTUAL_KEY.VK_ESCAPE)
+        {
+            Dismissed?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        if (!_state.TextBoxFocused)
         {
             return;
         }
 
-        _input.BeginEditing(TextBoxBounds(box), _state.TextBoxText, selectAll);
-    }
+        var shift = NativeHelpers.IsKeyDown(VIRTUAL_KEY.VK_SHIFT);
+        var control = NativeHelpers.IsKeyDown(VIRTUAL_KEY.VK_CONTROL);
+        var text = _state.TextBoxText;
+        var caret = _state.CaretIndex;
 
-    private void OnEditingEnded()
-    {
-        // The balloon draws the text itself again, without a highlighted selection.
-        _state.TextBoxText = _input.Text;
-        if (_layout is not null && IsVisible)
+        switch (key)
         {
-            Repaint();
+            // Without Shift, arrows first collapse an existing selection to its edge.
+            case VIRTUAL_KEY.VK_LEFT when !shift && !control && _state.HasSelection:
+                MoveCaret(_state.SelectionStart, shift);
+                break;
+            case VIRTUAL_KEY.VK_RIGHT when !shift && !control && _state.HasSelection:
+                MoveCaret(_state.SelectionEnd, shift);
+                break;
+            case VIRTUAL_KEY.VK_LEFT:
+                MoveCaret(control ? TextEditing.PreviousWordStart(text, caret) : Math.Max(0, caret - 1), shift);
+                break;
+            case VIRTUAL_KEY.VK_RIGHT:
+                MoveCaret(control ? TextEditing.NextWordStart(text, caret) : Math.Min(text.Length, caret + 1), shift);
+                break;
+            case VIRTUAL_KEY.VK_HOME:
+                MoveCaret(0, shift);
+                break;
+            case VIRTUAL_KEY.VK_END:
+                MoveCaret(text.Length, shift);
+                break;
+            case VIRTUAL_KEY.VK_DELETE:
+                if (!_state.HasSelection)
+                {
+                    _state.Select(caret, Math.Min(text.Length, caret + 1));
+                }
+
+                _state.ReplaceSelection(string.Empty);
+                break;
+            case VIRTUAL_KEY.VK_A when control:
+                _state.SelectAll();
+                break;
+            case VIRTUAL_KEY.VK_C when control && _state.HasSelection:
+                Clipboard.SetText(Hwnd, _state.SelectedText);
+                return;
+            case VIRTUAL_KEY.VK_X when control && _state.HasSelection:
+                Clipboard.SetText(Hwnd, _state.SelectedText);
+                _state.ReplaceSelection(string.Empty);
+                break;
+            case VIRTUAL_KEY.VK_V when control:
+                var paste = Clipboard.GetText(Hwnd);
+                if (string.IsNullOrEmpty(paste))
+                {
+                    return;
+                }
+
+                _state.ReplaceSelection(paste.ReplaceLineEndings(" "));
+                break;
+            default:
+                return;
         }
+
+        _state.CaretVisible = true;
+        Repaint();
     }
 
-    private void OnSubmitted()
+    private void MoveCaret(int index, bool extend) =>
+        _state.Select(extend ? _state.AnchorIndex : index, index);
+
+    private void OnChar(char c)
     {
-        _state.TextBoxText = _input.Text;
-        var buttons = _content?.Blocks.OfType<BalloonButtons>().FirstOrDefault();
-        if (buttons is { DefaultIndex: >= 0 })
+        if (c == '\r')
         {
-            ButtonClicked?.Invoke(this, buttons.Buttons[buttons.DefaultIndex].Id);
+            var buttons = _content?.Blocks.OfType<BalloonButtons>().FirstOrDefault();
+            if (buttons is { DefaultIndex: >= 0 })
+            {
+                ButtonClicked?.Invoke(this, buttons.Buttons[buttons.DefaultIndex].Id);
+            }
+
+            return;
         }
+
+        if (!_state.TextBoxFocused)
+        {
+            return;
+        }
+
+        if (c == '\b')
+        {
+            if (!_state.HasSelection && _state.CaretIndex > 0)
+            {
+                _state.Select(_state.CaretIndex - 1, _state.CaretIndex);
+            }
+
+            _state.ReplaceSelection(string.Empty);
+        }
+        else if (!char.IsControl(c))
+        {
+            _state.ReplaceSelection(c.ToString());
+        }
+        else
+        {
+            return;
+        }
+
+        _state.CaretVisible = true;
+        Repaint();
     }
 
-    private BalloonTextBoxBounds TextBoxBounds(TextBoxBounds box) => new(
-        X + (box.X * Scale),
-        Y + (box.Y * Scale),
-        box.Width * Scale,
-        box.Height * Scale,
-        Scale,
-        GetDpiAt(X + (box.X * Scale), Y + (box.Y * Scale)),
-        Handle);
+    private void SetTextBoxFocus(bool focused)
+    {
+        if (_state.TextBoxFocused == focused || _layout is null || !HasTextBox)
+        {
+            return;
+        }
+
+        _state.TextBoxFocused = focused;
+        _state.CaretVisible = focused;
+        if (focused)
+        {
+            PInvoke.SetTimer(Hwnd, CaretTimerId, PInvoke.GetCaretBlinkTime(), null);
+        }
+        else
+        {
+            PInvoke.KillTimer(Hwnd, CaretTimerId);
+        }
+
+        Repaint();
+    }
+
+    private int TextIndexAtCursor()
+    {
+        if (_bitmap is null)
+        {
+            return 0;
+        }
+
+        var (x, y) = CursorPosition();
+        return _renderer.TextIndexFromPoint(_bitmap, (x - X) / Scale, (y - Y) / Scale);
+    }
 
     private void Repaint()
     {
@@ -215,10 +412,6 @@ public sealed class BalloonWindow : LayeredWindow
         top = Math.Clamp(top, work.top, Math.Max(work.top, work.bottom - totalHeight));
 
         Present(_bitmap.Pixels, _bitmap.Width, _bitmap.Height, left, top, scale);
-        if (_input.IsEditing && _bitmap.TextBox is { } box)
-        {
-            _input.Move(TextBoxBounds(box));
-        }
     }
 
     private BalloonHit HitTestCursor()

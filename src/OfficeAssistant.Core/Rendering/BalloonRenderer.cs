@@ -45,8 +45,9 @@ public sealed class BalloonState
 
     public bool HasSelection => _anchor != _caret;
 
-    /// <summary>Whether the selection is highlighted, as in a focused edit control.</summary>
     public bool TextBoxFocused { get; set; }
+
+    public bool CaretVisible { get; set; }
 
     /// <summary>Selects from <paramref name="anchor"/> to <paramref name="caret"/> (equal values just move the caret).</summary>
     public void Select(int anchor, int caret)
@@ -56,6 +57,16 @@ public sealed class BalloonState
     }
 
     public void SelectAll() => Select(0, _text.Length);
+
+    /// <summary>Replaces the selection (or inserts at the caret) and puts the caret after the new text.</summary>
+    public void ReplaceSelection(string text)
+    {
+        var start = SelectionStart;
+        _text = _text[..start] + text + _text[SelectionEnd..];
+        _anchor = _caret = start + text.Length;
+    }
+
+    public string SelectedText => _text[SelectionStart..SelectionEnd];
 }
 
 public enum BalloonHitKind
@@ -74,7 +85,7 @@ public readonly record struct BalloonHit(BalloonHitKind Kind, string? Id)
 /// <summary>A painted balloon: pixels for the box plus tail, and where things are.</summary>
 public sealed class BalloonBitmap
 {
-    internal BalloonBitmap(int width, int height, uint[] pixels, int boxTop, int tailTipX, int tailTipY, List<(RECT Rect, BalloonHit Hit)> hits, TextBoxBounds? textBox)
+    internal BalloonBitmap(int width, int height, uint[] pixels, int boxTop, int tailTipX, int tailTipY, List<(RECT Rect, BalloonHit Hit)> hits, TextBoxGeometry? textBox)
     {
         Width = width;
         Height = height;
@@ -86,7 +97,7 @@ public sealed class BalloonBitmap
         TextBox = textBox;
     }
 
-    internal TextBoxBounds? TextBox { get; }
+    internal TextBoxGeometry? TextBox { get; }
 
     public int Width { get; }
 
@@ -249,7 +260,7 @@ public sealed class BalloonRenderer : IDisposable
         PaintShape(pixels, inside, width, boxHeight, boxTop, tailSide, tailX);
 
         var hits = new List<(RECT, BalloonHit)>();
-        TextBoxBounds? textBox = null;
+        TextBoxGeometry? textBox = null;
         foreach (var placed in layout.Blocks)
         {
             textBox = PaintBlock(canvas, placed, layout.Width, boxTop, state, hits) ?? textBox;
@@ -265,6 +276,41 @@ public sealed class BalloonRenderer : IDisposable
 
         var tipY = tailSide == BalloonTailSide.Bottom ? height - 1 : 0;
         return new BalloonBitmap(width, height, result, boxTop, tailX + TailOpening, tipY, hits, textBox);
+    }
+
+    /// <summary>
+    /// Character index in the text box nearest to a point in bitmap coordinates, for
+    /// placing the caret. Points above or below the text clamp to the first or last line.
+    /// </summary>
+    public int TextIndexFromPoint(BalloonBitmap bitmap, int x, int y)
+    {
+        if (bitmap.TextBox is not { } box || box.Lines.Count == 0)
+        {
+            return 0;
+        }
+
+        var line = Math.Clamp(box.FirstLine + ((y - box.Y) / LineHeight), box.FirstLine, box.LastVisibleLine);
+        if (y < box.Y)
+        {
+            line = box.FirstLine;
+        }
+
+        var (start, text) = box.Lines[line];
+        var content = line < box.Lines.Count - 1 ? text.TrimEnd(' ') : text;
+        var target = x - box.X;
+        var previous = 0;
+        for (var i = 1; i <= content.Length; i++)
+        {
+            var extent = Extent(content[..i], _regularFont);
+            if (target < (previous + extent + 1) / 2)
+            {
+                return start + i - 1;
+            }
+
+            previous = extent;
+        }
+
+        return start + content.Length;
     }
 
     private static unsafe HFONT CreateFont(string face, int height, int weight)
@@ -418,10 +464,10 @@ public sealed class BalloonRenderer : IDisposable
         inside[i] = true;
     }
 
-    private TextBoxBounds? PaintBlock(GdiCanvas canvas, PlacedBlock placed, int width, int boxTop, BalloonState state, List<(RECT, BalloonHit)> hits)
+    private TextBoxGeometry? PaintBlock(GdiCanvas canvas, PlacedBlock placed, int width, int boxTop, BalloonState state, List<(RECT, BalloonHit)> hits)
     {
         var y = boxTop + placed.Y;
-        TextBoxBounds? textBox = null;
+        TextBoxGeometry? textBox = null;
         switch (placed.Block)
         {
             case BalloonText text:
@@ -470,7 +516,7 @@ public sealed class BalloonRenderer : IDisposable
         return textBox;
     }
 
-    private TextBoxBounds PaintTextBox(GdiCanvas canvas, int width, int y, BalloonState state)
+    private TextBoxGeometry PaintTextBox(GdiCanvas canvas, int width, int y, BalloonState state)
     {
         var boxWidth = width - (2 * Padding);
         FillRect(canvas, Padding, y, boxWidth, TextBoxHeight, TextBoxBorder);
@@ -480,30 +526,37 @@ public sealed class BalloonRenderer : IDisposable
         var maxLines = (TextBoxHeight - 2) / LineHeight;
         var caretLine = LineOfIndex(lines, state.CaretIndex);
 
-        // Scroll just enough to keep the caret's line (the end, unless selecting) visible.
+        // Scroll just enough to keep the caret's line visible.
         var firstLine = Math.Clamp(caretLine - (maxLines - 1), 0, Math.Max(0, lines.Count - maxLines));
-        var textX = Padding + 2;
-        var lastLine = Math.Min(lines.Count, firstLine + maxLines) - 1;
+        var geometry = new TextBoxGeometry(Padding + 2, y + 1, lines, firstLine, Math.Min(lines.Count, firstLine + maxLines) - 1);
 
-        for (var i = firstLine; i <= lastLine; i++)
+        for (var i = firstLine; i <= geometry.LastVisibleLine; i++)
         {
             var (start, text) = lines[i];
-            var lineY = y + 1 + ((i - firstLine) * LineHeight);
-            DrawLines(canvas, [text], textX, lineY, _regularFont, Border);
+            var lineY = geometry.Y + ((i - firstLine) * LineHeight);
+            DrawLines(canvas, [text], geometry.X, lineY, _regularFont, Border);
 
             // Selected part: highlight with white text on top, as the edit control does.
             var from = Math.Clamp(state.SelectionStart - start, 0, text.Length);
             var to = Math.Clamp(state.SelectionEnd - start, 0, text.Length);
             if (to > from && state.TextBoxFocused)
             {
-                var left = textX + Extent(text[..from], _regularFont);
-                var right = textX + Extent(text[..to], _regularFont);
+                var left = geometry.X + Extent(text[..from], _regularFont);
+                var right = geometry.X + Extent(text[..to], _regularFont);
                 FillRect(canvas, left, lineY, right - left, LineHeight, SelectionBackground);
                 DrawLines(canvas, [text[from..to]], left, lineY, _regularFont, 0xFFFFFFFF);
             }
         }
 
-        return new TextBoxBounds(Padding, y, boxWidth, TextBoxHeight);
+        if (state.TextBoxFocused && state.CaretVisible && !state.HasSelection)
+        {
+            var (start, text) = lines[caretLine];
+            var caretX = geometry.X + Extent(text[..Math.Clamp(state.CaretIndex - start, 0, text.Length)], _regularFont);
+            var caretY = geometry.Y + ((caretLine - firstLine) * LineHeight);
+            FillRect(canvas, Math.Min(caretX, Padding + boxWidth - 2), caretY, 1, LineHeight, Border);
+        }
+
+        return geometry;
     }
 
     /// <summary>Line that shows the caret at <paramref name="index"/>; a break position belongs to the next line.</summary>
@@ -725,5 +778,4 @@ internal sealed class PlacedBlock(BalloonBlock block, int y)
 }
 
 /// <summary>Where the text box's text was painted, for mapping clicks to characters.</summary>
-/// <summary>The Answer Wizard box including its border, in balloon pixels.</summary>
-internal readonly record struct TextBoxBounds(int X, int Y, int Width, int Height);
+internal sealed record TextBoxGeometry(int X, int Y, IReadOnlyList<(int Start, string Text)> Lines, int FirstLine, int LastVisibleLine);

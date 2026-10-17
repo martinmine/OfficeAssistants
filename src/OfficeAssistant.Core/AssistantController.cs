@@ -1,7 +1,6 @@
 using AcsFormat;
 using OfficeAssistant.Core.Chat;
 using OfficeAssistant.Core.Rendering;
-using OfficeAssistant.Core.Windows;
 
 namespace OfficeAssistant.Core;
 
@@ -27,12 +26,10 @@ public sealed class AssistantController : IDisposable, IChatHost
     private readonly BalloonCoordinator _balloon;
     private readonly ConversationController _conversation;
 
-    /// <param name="settings">The Claude settings and the assistants' profiles.</param>
-    /// <param name="textInput">The text box the app shows over the balloon while the user types; the controller disposes it.</param>
-    public AssistantController(SettingsStore settings, IBalloonTextInput textInput)
+    public AssistantController(SettingsStore settings)
     {
         _character = new CharacterPresenter(settings.Settings.PixelSize);
-        _balloon = new BalloonCoordinator(_character, textInput);
+        _balloon = new BalloonCoordinator(_character);
         _conversation = new ConversationController(settings, _character, _balloon);
 
         _character.VisibilityChanged += (_, _) => VisibilityChanged?.Invoke(this, EventArgs.Empty);
