@@ -20,6 +20,7 @@ public sealed partial class MainPage : Page
     private AnimationPlayer? _previewPlayer;
     private SoundPlayer? _previewSounds;
     private WriteableBitmap? _previewBitmap;
+    private byte[] _previewPixels = [];
     private AcsCharacter? _previewCharacter;
     private uint[]? _lastPreviewFrame;
 
@@ -154,7 +155,13 @@ public sealed partial class MainPage : Page
             UpdatePreviewSize();
         }
 
-        var pixels = new byte[width * height * 4];
+        // Reused from frame to frame while the size stays the same.
+        if (_previewPixels.Length != width * height * 4)
+        {
+            _previewPixels = new byte[width * height * 4];
+        }
+
+        var pixels = _previewPixels;
         var source = _lastPreviewFrame;
         var sourceWidth = _previewCharacter.Width;
         for (var y = 0; y < height; y++)

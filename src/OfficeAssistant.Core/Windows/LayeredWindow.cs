@@ -23,6 +23,14 @@ public abstract unsafe class LayeredWindow : IDisposable
 
     private bool _visible;
 
+    // The DIB that Present draws into, kept while the window size stays the same.
+    private HDC _memoryDc;
+    private HBITMAP _bitmap;
+    private HGDIOBJ _oldBitmap;
+    private uint* _bits;
+    private int _bitmapWidth;
+    private int _bitmapHeight;
+
     protected LayeredWindow(bool activatable)
     {
         RegisterClass();
@@ -78,6 +86,8 @@ public abstract unsafe class LayeredWindow : IDisposable
             Handle = 0;
         }
 
+        FreeBitmap();
+
         GC.SuppressFinalize(this);
     }
 
@@ -114,34 +124,20 @@ public abstract unsafe class LayeredWindow : IDisposable
         Width = width * Scale;
         Height = height * Scale;
 
-        var screenDc = PInvoke.GetDC(default);
-        var memoryDc = PInvoke.CreateCompatibleDC(screenDc);
-        var bitmap = CreateDib(memoryDc, Width, Height, out var bits);
-        var old = PInvoke.SelectObject(memoryDc, bitmap);
-        try
-        {
-            var target = new Span<uint>(bits, Width * Height);
-            ScaleNearest(pixels, width, height, target, Scale);
+        EnsureBitmap(Width, Height);
+        ScaleNearest(pixels, width, height, new Span<uint>(_bits, Width * Height), Scale);
 
-            var blend = new BLENDFUNCTION
-            {
-                BlendOp = (byte)PInvoke.AC_SRC_OVER,
-                SourceConstantAlpha = 255,
-                AlphaFormat = (byte)PInvoke.AC_SRC_ALPHA,
-            };
-            var position = new System.Drawing.Point(x, y);
-            var size = new SIZE(Width, Height);
-            var origin = default(System.Drawing.Point);
-            PInvoke.UpdateLayeredWindow(
-                Hwnd, screenDc, &position, &size, memoryDc, &origin, default, &blend, UPDATE_LAYERED_WINDOW_FLAGS.ULW_ALPHA);
-        }
-        finally
+        var blend = new BLENDFUNCTION
         {
-            PInvoke.SelectObject(memoryDc, old);
-            PInvoke.DeleteObject(bitmap);
-            PInvoke.DeleteDC(memoryDc);
-            _ = PInvoke.ReleaseDC(default, screenDc);
-        }
+            BlendOp = (byte)PInvoke.AC_SRC_OVER,
+            SourceConstantAlpha = 255,
+            AlphaFormat = (byte)PInvoke.AC_SRC_ALPHA,
+        };
+        var position = new System.Drawing.Point(x, y);
+        var size = new SIZE(Width, Height);
+        var origin = default(System.Drawing.Point);
+        PInvoke.UpdateLayeredWindow(
+            Hwnd, default, &position, &size, _memoryDc, &origin, default, &blend, UPDATE_LAYERED_WINDOW_FLAGS.ULW_ALPHA);
     }
 
     /// <summary>Work area of the monitor nearest to a point, in physical pixels.</summary>
@@ -194,6 +190,37 @@ public abstract unsafe class LayeredWindow : IDisposable
     {
         PInvoke.GetCursorPos(out var point);
         return (point.X, point.Y);
+    }
+
+    /// <summary>Makes sure the memory DC holds a DIB of this size, creating it only when the size changed.</summary>
+    private void EnsureBitmap(int width, int height)
+    {
+        if (!_bitmap.IsNull && width == _bitmapWidth && height == _bitmapHeight)
+        {
+            return;
+        }
+
+        FreeBitmap();
+        _memoryDc = PInvoke.CreateCompatibleDC(default);
+        _bitmap = CreateDib(_memoryDc, width, height, out _bits);
+        _oldBitmap = PInvoke.SelectObject(_memoryDc, _bitmap);
+        _bitmapWidth = width;
+        _bitmapHeight = height;
+    }
+
+    private void FreeBitmap()
+    {
+        if (_memoryDc.IsNull)
+        {
+            return;
+        }
+
+        PInvoke.SelectObject(_memoryDc, _oldBitmap);
+        PInvoke.DeleteObject(_bitmap);
+        PInvoke.DeleteDC(_memoryDc);
+        _memoryDc = default;
+        _bitmap = default;
+        _bits = null;
     }
 
     /// <summary>Creates a top-down 32-bit DIB section and returns its pixel pointer.</summary>
