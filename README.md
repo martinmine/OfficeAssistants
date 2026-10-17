@@ -126,15 +126,17 @@ the app runs packaged); the path is shown at the bottom of the card.
 
 ## Assistant files
 
-The original files live in `Assistants/` and are bundled with the app:
+The original files live in `Assistants/` and are bundled with the app. Each of the eight
+assistants (`CLIPPIT`, `DOT`, `F1`, `GENIUS`, `LOGO`, `MNATURE`, `OFFCAT` and `ROCKY`) comes as
+two files:
 
-- `.acs` is a full character with every animation. Only `CLIPPIT.ACS` is included.
+- `.acs` is the full character with every animation, used on screen.
 - `.acg` is the gallery preview Office shows in its "Choose Assistant" dialog. It has the
-  same format but only contains the `Wave` animation.
+  same format but only contains the `Wave` animation, and the gallery in Options shows it.
 
-So every assistant can be picked, but only Clippit does more than wave. To get the full
-set for another assistant, put its `.acs` file (for example `ROCKY.ACS`) in `Assistants/`
-and rebuild, or load it at runtime with **Add assistant files (.acs, .acg)...**.
+An assistant with only an `.acg` file can still be picked, but it can do no more than wave.
+To add other assistants, put their files in `Assistants/` and rebuild, or load them at
+runtime with **Add assistant files (.acs, .acg)...**.
 
 ## Running the tests
 
@@ -183,7 +185,7 @@ warning icon from the screenshots into `src/OfficeAssistant.Core/Rendering/Ballo
 | The app starts but no assistant appears | Check that `Assistants/` contains the `.acs`/`.acg` files, then use **Show the Office Assistant** in Options. |
 | "There's a problem: I need a Claude API key" | Paste a key in the **Claude** card and click **Save key**, or set `ANTHROPIC_API_KEY` and restart the app. |
 | An MCP server shows "Failed" | Check that its command runs in a terminal (for example `npx` needs Node.js on the `PATH`), then click **Reconnect**. Remote servers that need OAuth sign-in aren't supported yet; use `headers` with a token. |
-| The assistant looks small on a high-DPI screen | Choose a larger **Pixel size** in Options; it scales by whole pixels so the art stays sharp. |
+| The assistant looks too small or too large | With **Pixel size** on **Automatic** it follows the display scaling (2x at 200%). Pick a size in Options to override it; it scales by whole pixels so the art stays sharp. |
 
 ## Notes on the file format
 
