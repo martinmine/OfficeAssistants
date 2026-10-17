@@ -1,5 +1,7 @@
-﻿using AcsFormat;
-using AcsTool;
+﻿using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+using AcsFormat;
 
 // Developer tool: inspect ACS/ACG files and export their frames and sounds.
 if (args.Length == 0)
@@ -83,7 +85,7 @@ static void Export(AcsCharacter character, string folder)
         for (var i = 0; i < animation.Frames.Count; i++)
         {
             var pixels = renderer.Render(animation.Frames[i]);
-            PngWriter.Write(Path.Combine(folder, $"{animation.Name}_{i:D3}.png"), character.Width, character.Height, pixels);
+            SavePng(Path.Combine(folder, $"{animation.Name}_{i:D3}.png"), character.Width, character.Height, pixels);
         }
     }
 
@@ -93,4 +95,25 @@ static void Export(AcsCharacter character, string folder)
     }
 
     Console.WriteLine($"Exported {character.Animations.Sum(a => a.Frames.Count)} frames and {character.SoundCount} sounds to {folder}");
+}
+
+/// <summary>Saves premultiplied 0xAARRGGBB pixels with 1-bit alpha (so also straight ARGB) as a PNG.</summary>
+static void SavePng(string path, int width, int height, ReadOnlySpan<uint> pixels)
+{
+    using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+    var data = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+    try
+    {
+        var source = MemoryMarshal.Cast<uint, int>(pixels);
+        for (var y = 0; y < height; y++)
+        {
+            Marshal.Copy(source.Slice(y * width, width).ToArray(), 0, data.Scan0 + (y * data.Stride), width);
+        }
+    }
+    finally
+    {
+        bitmap.UnlockBits(data);
+    }
+
+    bitmap.Save(path, ImageFormat.Png);
 }
