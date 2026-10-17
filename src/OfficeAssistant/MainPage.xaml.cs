@@ -60,7 +60,8 @@ public sealed partial class MainPage : Page
 
     public MainPageViewModel ViewModel { get; } = new();
 
-    private int PreviewScale => ViewModel.ScaleIndex + 1;
+    /// <summary>The preview uses the assistant's pixel size, including the automatic one.</summary>
+    private static int PreviewScale => App.Assistant.Scale;
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
