@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The macOS app: an AppKit shell and the AppKit implementation of Core's platform interfaces. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-macos</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>OfficeAssistant.Mac</RootNamespace>
+    <AssemblyName>OfficeAssistant</AssemblyName>
+    <ApplicationTitle>Office Assistant</ApplicationTitle>
+    <ApplicationId>com.github.martinmine.officeassistant</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>true</ImplicitUsings>
+    <SupportedOSPlatformVersion>12.0</SupportedOSPlatformVersion>
+    <RuntimeIdentifiers>osx-arm64;osx-x64</RuntimeIdentifiers>
+
+    <!--
+      .NET for macOS checks that Xcode is exactly the version it was built against. Newer
+      Xcode releases build this app fine, so don't fail on them.
+    -->
+    <ValidateXcodeVersion>false</ValidateXcodeVersion>
+
+    <!-- The Anthropic SDK serializes with reflection-based System.Text.Json (see the WinUI project). -->
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <TrimMode Condition="'$(Configuration)' == 'Release'">partial</TrimMode>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <TrimmerRootAssembly Include="Anthropic" />
+  </ItemGroup>
+
+  <!-- The original assistant files ship in Contents/Resources/Assistants. -->
+  <ItemGroup>
+    <BundleResource Include="..\..\Assistants\*.acs;..\..\Assistants\*.acg" Link="Assistants\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OfficeAssistant.Core\OfficeAssistant.Core.csproj" />
+    <ProjectReference Include="..\OfficeAssistant.Presentation\OfficeAssistant.Presentation.csproj" />
+  </ItemGroup>
+
+</Project>

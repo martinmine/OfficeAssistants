@@ -8,6 +8,7 @@
   <Folder Name="/src/">
     <Project Path="src/AcsFormat/AcsFormat.csproj" />
     <Project Path="src/OfficeAssistant.Core/OfficeAssistant.Core.csproj" />
+    <Project Path="src/OfficeAssistant.Mac/OfficeAssistant.Mac.csproj" />
     <Project Path="src/OfficeAssistant.Platform.Windows/OfficeAssistant.Platform.Windows.csproj" />
     <Project Path="src/OfficeAssistant.Presentation/OfficeAssistant.Presentation.csproj" />
     <Project Path="src/OfficeAssistant/OfficeAssistant.csproj">

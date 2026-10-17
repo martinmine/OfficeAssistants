@@ -5,6 +5,7 @@
       "src/AcsFormat/AcsFormat.csproj",
       "src/OfficeAssistant.Core/OfficeAssistant.Core.csproj",
       "src/OfficeAssistant.Presentation/OfficeAssistant.Presentation.csproj",
+      "src/OfficeAssistant.Mac/OfficeAssistant.Mac.csproj",
       "tests/AcsFormat.Tests/AcsFormat.Tests.csproj"
     ]
   }
