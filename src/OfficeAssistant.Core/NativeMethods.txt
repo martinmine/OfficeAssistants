@@ -61,5 +61,13 @@ CreateDIBSection
 SelectObject
 DeleteObject
 
-// Sound
-PlaySound
+// Sound (each player has its own waveOut handle, so players mix)
+waveOutOpen
+waveOutPrepareHeader
+waveOutWrite
+waveOutReset
+waveOutUnprepareHeader
+waveOutClose
+WAVE_MAPPER
+WAVEHDR
+WAVEFORMATEX
