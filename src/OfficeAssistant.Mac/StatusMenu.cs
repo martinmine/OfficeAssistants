@@ -56,7 +56,7 @@ internal sealed class StatusMenu : NSMenuDelegate
         menu.AddItem(NSMenuItem.SeparatorItem);
         Add(menu, "Settings...", () =>
         {
-            NSApplication.SharedApplication.ActivateIgnoringOtherApps(true);
+            AppDelegate.ActivateApp();
             _openSettings();
         }).KeyEquivalent = ",";
         Add(menu, "Quit Office Assistant", () => NSApplication.SharedApplication.Terminate(null)).KeyEquivalent = "q";

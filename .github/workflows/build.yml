@@ -1,0 +1,32 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        run: dotnet build Windows.slnf -p:Platform=x64
+      - name: Test
+        run: dotnet test Windows.slnf -p:Platform=x64 --no-build
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Install the macOS workload
+        run: dotnet workload install macos
+      - name: Build
+        run: dotnet build Mac.slnf
+      - name: Test
+        run: dotnet test tests/AcsFormat.Tests --no-build

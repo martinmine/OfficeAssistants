@@ -58,7 +58,7 @@ internal sealed class SettingsWindow : NSWindow
             _tabs.Select(item);
         }
 
-        NSApplication.SharedApplication.ActivateIgnoringOtherApps(true);
+        AppDelegate.ActivateApp();
         MakeKeyAndOrderFront(null);
         RestartPreview();
     }

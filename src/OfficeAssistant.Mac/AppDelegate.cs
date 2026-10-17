@@ -23,6 +23,19 @@ public sealed class AppDelegate : NSApplicationDelegate
 
     public static MainPageViewModel ViewModel { get; private set; } = null!;
 
+    /// <summary>Brings the app to the front, for its windows.</summary>
+    public static void ActivateApp()
+    {
+        if (OperatingSystem.IsMacOSVersionAtLeast(14))
+        {
+            NSApplication.SharedApplication.Activate();
+        }
+        else
+        {
+            NSApplication.SharedApplication.ActivateIgnoringOtherApps(true);
+        }
+    }
+
     public override void DidFinishLaunching(NSNotification notification)
     {
         LoginShellEnvironment.ApplyPath();

@@ -8,7 +8,7 @@ things. Ask the assistant a question in its balloon and it answers with
 assistant [MCP](https://modelcontextprotocol.io) servers and it can use their tools too:
 read your files, search your notes, check your calendar, or whatever the servers offer.
 
-It's a WinUI 3 app written in C#. Characters, animations, sounds and localized strings are
+It's a C# app for Windows (WinUI 3) and macOS (AppKit). Characters, animations, sounds and localized strings are
 read straight from the original Microsoft Agent files, and the assistant and its balloons
 are drawn pixel for pixel: the tests compare the output with the reference screenshots in
 `Screenshots/` and require zero differing pixels.
@@ -52,8 +52,40 @@ window, and Clippit appears in the bottom-right corner of the screen with a gree
 To build everything (app, parser, tool and tests) without launching:
 
 ```powershell
-dotnet build OfficeAssistant.slnx
+dotnet build Windows.slnf
 ```
+
+## On macOS
+
+Needs macOS 12 or later, the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0),
+Xcode, and the .NET macOS workload:
+
+```bash
+sudo dotnet workload install macos
+```
+
+Build and run:
+
+```bash
+dotnet build Mac.slnf
+```
+
+```bash
+open "src/OfficeAssistant.Mac/bin/Debug/net10.0-macos/osx-arm64/Office Assistant.app"
+```
+
+(`osx-x64` on an Intel Mac.) The assistant floats over every app and Space, and a paper
+clip in the menu bar shows or hides it, asks a question, picks another assistant and opens
+the settings, which have the same gallery, options, Claude, instructions-and-tools and
+animation tabs as the Windows window. The API key is kept in your Keychain. Right-click or
+Control-click the assistant for its menu. MCP servers started with `npx` or `uvx` work
+because the app takes `PATH` from your login shell.
+
+`tools/package-mac.sh` builds a universal (Apple silicon and Intel) app and packs it into
+`artifacts/OfficeAssistant.dmg`. Set `SIGN_IDENTITY` to a Developer ID certificate to sign
+it with the hardened runtime, and `NOTARY_PROFILE` to notarize it; without them the app is
+only ad hoc signed and other Macs will refuse to open it until it's allowed in System
+Settings.
 
 ## Using the app
 
@@ -181,6 +213,7 @@ or from FreeType on a Mac with `tools/FontBaker/bake_font.c` (instructions in th
 | `src/OfficeAssistant.Platform.Windows` | The Win32 implementation of those interfaces: layered windows, GDI text, waveOut sound, the clipboard and DPAPI. |
 | `src/OfficeAssistant.Presentation` | View models shared by the app shells. |
 | `src/OfficeAssistant` | The WinUI 3 app. |
+| `src/OfficeAssistant.Mac` | The macOS app: the AppKit implementation of the platform interfaces (`Platform/`), the menu bar item and the settings window (`Settings/`). |
 | `tools/AcsTool` | Developer CLI described above (Windows only). |
 | `tests/AcsFormat.Tests` | Portable unit tests. |
 | `tests/OfficeAssistant.Windows.Tests` | GDI pixel-comparison and DPAPI tests. |

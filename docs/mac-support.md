@@ -1,9 +1,10 @@
 # Design: macOS support
 
-Status: **proposal, not started.** It describes how to split the Windows-only code out of
-`OfficeAssistant.Core` so the assistant can run on macOS, which seams to introduce, how the
-Mac side is built, and in which order to do it. Phases 1–3 are pure refactoring on Windows
-and are worth merging on their own even if the Mac app never ships.
+Status: **implemented on the `macos-support` branch, phases 1–8** (October 2026). It
+describes how the Windows-only code was split out of `OfficeAssistant.Core` so the assistant
+can run on macOS, which seams were introduced, how the Mac side is built, and in which
+order. See "What changed from the plan" at the end for where the implementation differs
+and what is still unverified.
 
 ## Where the Windows coupling is today
 
@@ -299,3 +300,53 @@ Phases 1–4 are Windows-side refactoring. Phase 0 can run in parallel with them
 - **Effort.** Rough guess: phases 1–4 about 1.5–2 weeks, phases 5–6 about 1.5 weeks,
   phase 7 about 1.5 weeks, phase 8 a few days plus Apple
   developer account setup.
+
+## What changed from the plan
+
+- **Phase 0 (spike) was folded into phases 5–6.** The panels were built directly and
+  checked by launching the app; see "Still to check by hand".
+- **The bitmap font was baked with FreeType, not GDI** (phase 4), because the work was done
+  on a Mac. `tools/FontBaker/bake_font.c` renders Tahoma with FreeType's monochrome
+  TrueType hinting; it agrees with the Office XP screenshots except for one pixel of the bold
+  "s", which the baker corrects from a small table. All four balloon screenshots match with
+  zero differing pixels on macOS. `AcsTool bake-font` writes the same file from GDI, and
+  `BitmapFontTests` (Windows) compares every baked glyph with GDI; run them, and re-bake
+  with GDI if they fail.
+- **Hebrew, Arabic and Thai are not baked**: they need shaping, so runs of characters the
+  font lacks go as a whole to the platform renderer (Core Text on the Mac).
+- **The mnemonic underline is as wide as the character**, one pixel below the baseline,
+  as measured from the screenshots.
+- **`IDisplays` returns DPI, not a default scale**, so `ScaleForDpi` stays in Core; the Mac
+  always reports 96.
+- **`ISecretStore` protects and unprotects** the value saved in the settings file instead of
+  owning storage: DPAPI returns the encrypted key, the Keychain store returns a reference.
+- **No file picker interface**: picking files happens in the views, which hand paths to the
+  view model.
+- **No `IProcessEnvironment`**: the Mac app sets its own `PATH` from the login shell at
+  startup, and MCP server processes inherit it.
+- **No `IAssetLocator`**: each shell passes its assistants folder to the view model.
+- The preview mute setting moved into `AppSettings`, so a mute saved by an earlier Windows
+  build (in the package's LocalSettings) is not carried over.
+
+## Still to check by hand
+
+Nothing on Windows was built or run during this work (it was done on a Mac):
+
+- `dotnet build Windows.slnf` and `dotnet test Windows.slnf`, including `BitmapFontTests`,
+  the GDI balloon pixel tests and the DPAPI test.
+- In the Windows app: dragging, clicking, double-clicking and right-clicking the character;
+  typing, selecting, copying and pasting in the balloon; button captions and their
+  underlines; sounds; the gallery preview and the MCP server status colours.
+
+On the Mac the app was launched and its windows inspected, but no input was tried:
+
+- Clicks on transparent pixels around the character reach the app underneath.
+- Clicking the character doesn't take focus from the frontmost app; the balloon takes
+  typing (including dead keys and an input method) without activating the app.
+- Dragging, double-click, right-click and Control-click menus; ⌘A/⌘C/⌘X/⌘V, ⌥←/⌥→,
+  ⌘←/⌘→ in the balloon.
+- Sounds (AVAudioPlayer with the ADPCM clips), pixel sizes 2x and 3x, multiple screens,
+  Spaces and full-screen apps.
+- Saving the API key in the Keychain and asking Claude a question; an MCP server via `npx`.
+- Signing and notarizing with `SIGN_IDENTITY` and `NOTARY_PROFILE` (only the unsigned DMG
+  was built), and the CI workflow in `.github/workflows/build.yml`.
