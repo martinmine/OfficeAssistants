@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
 using AcsFormat;
-using OfficeAssistant.Core.Interop;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.Media.Audio;
 
 namespace OfficeAssistant.Core.Animation;
 
@@ -8,7 +10,7 @@ namespace OfficeAssistant.Core.Animation;
 /// Plays a character's embedded WAVE clips with PlaySound. Clips are copied to unmanaged
 /// memory once because asynchronous in-memory playback reads the buffer after the call returns.
 /// </summary>
-public sealed class SoundPlayer(AcsCharacter character) : IDisposable
+public sealed unsafe class SoundPlayer(AcsCharacter character) : IDisposable
 {
     private readonly Dictionary<int, nint> _buffers = [];
 
@@ -25,19 +27,17 @@ public sealed class SoundPlayer(AcsCharacter character) : IDisposable
         {
             var data = character.GetSound(index).WaveData.Span;
             buffer = Marshal.AllocHGlobal(data.Length);
-            unsafe
-            {
-                data.CopyTo(new Span<byte>((void*)buffer, data.Length));
-            }
+            data.CopyTo(new Span<byte>((void*)buffer, data.Length));
 
             _buffers[index] = buffer;
         }
 
-        Native.PlaySound(buffer, 0, Native.SND_MEMORY | Native.SND_ASYNC | Native.SND_NODEFAULT);
+        // With SND_MEMORY the sound "name" is a pointer to the WAVE data.
+        PInvoke.PlaySound((PCWSTR)(char*)buffer, default, SND_FLAGS.SND_MEMORY | SND_FLAGS.SND_ASYNC | SND_FLAGS.SND_NODEFAULT);
     }
 
     /// <summary>Stops the clip that is playing, if any.</summary>
-    public void Stop() => Native.PlaySound(0, 0, 0);
+    public void Stop() => PInvoke.PlaySound(default(PCWSTR), default, 0);
 
     public void Dispose()
     {

@@ -1,4 +1,5 @@
-using OfficeAssistant.Core.Interop;
+using Windows.Win32;
+using Windows.Win32.Graphics.Gdi;
 
 namespace OfficeAssistant.Core.Rendering;
 
@@ -8,57 +9,67 @@ namespace OfficeAssistant.Core.Rendering;
 /// </summary>
 internal sealed unsafe class GdiCanvas : IDisposable
 {
-    private readonly nint _bitmap;
-    private readonly nint _oldBitmap;
+    // Explicit handles: the DIB stays selected into the DC for the canvas's lifetime.
+    private readonly HBITMAP _bitmap;
+    private readonly HGDIOBJ _oldBitmap;
     private readonly uint* _bits;
 
     public GdiCanvas(int width, int height)
     {
         Width = Math.Max(1, width);
         Height = Math.Max(1, height);
-        Dc = Native.CreateCompatibleDC(0);
+        Dc = PInvoke.CreateCompatibleDC(default);
 
-        var header = new Native.BITMAPINFOHEADER
+        _bitmap = CreateDib(Dc, Width, Height, out _bits);
+        if (_bitmap.IsNull)
         {
-            BiSize = sizeof(Native.BITMAPINFOHEADER),
-            BiWidth = Width,
-            BiHeight = -Height,
-            BiPlanes = 1,
-            BiBitCount = 32,
-        };
-        _bitmap = Native.CreateDIBSection(Dc, header, 0, out var bits, 0, 0);
-        if (_bitmap == 0)
-        {
-            Native.DeleteDC(Dc);
+            PInvoke.DeleteDC(Dc);
             throw new InvalidOperationException("CreateDIBSection failed.");
         }
 
-        _bits = (uint*)bits;
-        _oldBitmap = Native.SelectObject(Dc, _bitmap);
-        Native.SetBkMode(Dc, Native.TRANSPARENT);
+        _oldBitmap = PInvoke.SelectObject(Dc, _bitmap);
+        PInvoke.SetBkMode(Dc, BACKGROUND_MODE.TRANSPARENT);
     }
 
     public int Width { get; }
 
     public int Height { get; }
 
-    public nint Dc { get; }
-
-    public nint Bitmap => _bitmap;
+    public HDC Dc { get; }
 
     public Span<uint> Pixels
     {
         get
         {
-            Native.GdiFlush();
+            PInvoke.GdiFlush();
             return new Span<uint>(_bits, Width * Height);
         }
     }
 
     public void Dispose()
     {
-        Native.SelectObject(Dc, _oldBitmap);
-        Native.DeleteObject(_bitmap);
-        Native.DeleteDC(Dc);
+        PInvoke.SelectObject(Dc, _oldBitmap);
+        PInvoke.DeleteObject(_bitmap);
+        PInvoke.DeleteDC(Dc);
+    }
+
+    /// <summary>Creates a top-down 32-bit DIB section and returns its pixel pointer.</summary>
+    internal static HBITMAP CreateDib(HDC dc, int width, int height, out uint* bits)
+    {
+        var info = new BITMAPINFO
+        {
+            bmiHeader = new BITMAPINFOHEADER
+            {
+                biSize = (uint)sizeof(BITMAPINFOHEADER),
+                biWidth = width,
+                biHeight = -height,
+                biPlanes = 1,
+                biBitCount = 32,
+            },
+        };
+        void* pointer;
+        var bitmap = PInvoke.CreateDIBSection(dc, &info, DIB_USAGE.DIB_RGB_COLORS, &pointer, default, 0);
+        bits = (uint*)pointer;
+        return bitmap;
     }
 }

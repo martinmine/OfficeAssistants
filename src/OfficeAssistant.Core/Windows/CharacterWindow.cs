@@ -1,4 +1,5 @@
-using OfficeAssistant.Core.Interop;
+using Windows.Win32;
+using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace OfficeAssistant.Core.Windows;
 
@@ -6,7 +7,7 @@ namespace OfficeAssistant.Core.Windows;
 /// The floating assistant. Never takes focus; can be dragged anywhere, clicked or
 /// right-clicked.
 /// </summary>
-public sealed class CharacterWindow : LayeredWindow
+public sealed unsafe class CharacterWindow : LayeredWindow
 {
     private const int DragThreshold = 3;
 
@@ -36,10 +37,10 @@ public sealed class CharacterWindow : LayeredWindow
     {
         switch (message)
         {
-            case Native.WM_MOUSEACTIVATE:
-                return Native.MA_NOACTIVATE;
+            case PInvoke.WM_MOUSEACTIVATE:
+                return (nint)PInvoke.MA_NOACTIVATE;
 
-            case Native.WM_LBUTTONDOWN:
+            case PInvoke.WM_LBUTTONDOWN:
             {
                 var (x, y) = CursorPosition();
                 _pressed = true;
@@ -48,11 +49,11 @@ public sealed class CharacterWindow : LayeredWindow
                 _pressY = y;
                 _offsetX = x - X;
                 _offsetY = y - Y;
-                Native.SetCapture(Handle);
+                PInvoke.SetCapture(Hwnd);
                 return 0;
             }
 
-            case Native.WM_MOUSEMOVE when _pressed:
+            case PInvoke.WM_MOUSEMOVE when _pressed:
             {
                 var (x, y) = CursorPosition();
                 if (!_dragging && (Math.Abs(x - _pressX) > DragThreshold || Math.Abs(y - _pressY) > DragThreshold))
@@ -70,9 +71,9 @@ public sealed class CharacterWindow : LayeredWindow
                 return 0;
             }
 
-            case Native.WM_LBUTTONUP when _pressed:
+            case PInvoke.WM_LBUTTONUP when _pressed:
                 _pressed = false;
-                Native.ReleaseCapture();
+                PInvoke.ReleaseCapture();
                 if (!_dragging)
                 {
                     Clicked?.Invoke(this, EventArgs.Empty);
@@ -81,16 +82,16 @@ public sealed class CharacterWindow : LayeredWindow
                 _dragging = false;
                 return 0;
 
-            case Native.WM_CAPTURECHANGED:
+            case PInvoke.WM_CAPTURECHANGED:
                 _pressed = false;
                 _dragging = false;
                 return 0;
 
-            case Native.WM_LBUTTONDBLCLK:
+            case PInvoke.WM_LBUTTONDBLCLK:
                 DoubleClicked?.Invoke(this, EventArgs.Empty);
                 return 0;
 
-            case Native.WM_RBUTTONUP:
+            case PInvoke.WM_RBUTTONUP:
             {
                 var (x, y) = CursorPosition();
                 ContextMenuRequested?.Invoke(this, (x, y));
@@ -104,28 +105,24 @@ public sealed class CharacterWindow : LayeredWindow
     /// <summary>Shows a popup menu at a screen point and returns the chosen id (0 if dismissed).</summary>
     public int ShowMenu(int x, int y, IEnumerable<(int Id, string? Text, bool Enabled)> items)
     {
-        var menu = Native.CreatePopupMenu();
-        try
+        using var menu = PInvoke.CreatePopupMenu_SafeHandle();
+        foreach (var (id, text, enabled) in items)
         {
-            foreach (var (id, text, enabled) in items)
+            if (text is null)
             {
-                if (text is null)
-                {
-                    Native.AppendMenu(menu, Native.MF_SEPARATOR, 0, null);
-                }
-                else
-                {
-                    Native.AppendMenu(menu, Native.MF_STRING | (enabled ? 0 : Native.MF_GRAYED), (nuint)id, text);
-                }
+                PInvoke.AppendMenu(menu, MENU_ITEM_FLAGS.MF_SEPARATOR, 0, null);
             }
+            else
+            {
+                PInvoke.AppendMenu(menu, MENU_ITEM_FLAGS.MF_STRING | (enabled ? 0 : MENU_ITEM_FLAGS.MF_GRAYED), (nuint)id, text);
+            }
+        }
 
-            // The menu needs a foreground owner to dismiss properly.
-            Native.SetForegroundWindow(Handle);
-            return Native.TrackPopupMenuEx(menu, Native.TPM_RETURNCMD | Native.TPM_RIGHTBUTTON, x, y, Handle, 0);
-        }
-        finally
-        {
-            Native.DestroyMenu(menu);
-        }
+        // The menu needs a foreground owner to dismiss properly.
+        PInvoke.SetForegroundWindow(Hwnd);
+
+        // With TPM_RETURNCMD the "BOOL" result is the chosen command id.
+        return PInvoke.TrackPopupMenuEx(
+            menu, (uint)(TRACK_POPUP_MENU_FLAGS.TPM_RETURNCMD | TRACK_POPUP_MENU_FLAGS.TPM_RIGHTBUTTON), x, y, Hwnd, null);
     }
 }

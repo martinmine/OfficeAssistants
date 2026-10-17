@@ -174,8 +174,8 @@ public sealed class AssistantController : IDisposable, IChatHost
         if (!_positioned)
         {
             var work = LayeredWindow.GetWorkArea(0, 0);
-            var x = work.Right - (Character.Width * _scale) - 40;
-            var y = work.Bottom - (Character.Height * _scale) - 40;
+            var x = work.right - (Character.Width * _scale) - 40;
+            var y = work.bottom - (Character.Height * _scale) - 40;
             _window.MoveTo(x, y);
             _positioned = true;
         }

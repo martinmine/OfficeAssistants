@@ -1,5 +1,10 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using OfficeAssistant.Core.Interop;
+using OfficeAssistant.Core.Rendering;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.Graphics.Gdi;
+using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace OfficeAssistant.Core.Windows;
 
@@ -13,7 +18,6 @@ public abstract unsafe class LayeredWindow : IDisposable
 {
     private const string ClassName = "OfficeAssistant.LayeredWindow";
 
-    private static readonly Native.WndProc WndProcDelegate = StaticWndProc;
     private static readonly Dictionary<nint, LayeredWindow> Windows = [];
     private static bool _classRegistered;
 
@@ -22,13 +26,22 @@ public abstract unsafe class LayeredWindow : IDisposable
     protected LayeredWindow(bool activatable)
     {
         RegisterClass();
-        var exStyle = Native.WS_EX_LAYERED | Native.WS_EX_TOPMOST | Native.WS_EX_TOOLWINDOW;
+        var exStyle = WINDOW_EX_STYLE.WS_EX_LAYERED | WINDOW_EX_STYLE.WS_EX_TOPMOST | WINDOW_EX_STYLE.WS_EX_TOOLWINDOW;
         if (!activatable)
         {
-            exStyle |= Native.WS_EX_NOACTIVATE;
+            exStyle |= WINDOW_EX_STYLE.WS_EX_NOACTIVATE;
         }
 
-        Handle = Native.CreateWindowEx(exStyle, ClassName, "Office Assistant", Native.WS_POPUP, 0, 0, 1, 1, 0, 0, Native.GetModuleHandle(0), 0);
+        HWND hwnd;
+        fixed (char* className = ClassName)
+        fixed (char* title = "Office Assistant")
+        {
+            hwnd = PInvoke.CreateWindowEx(
+                exStyle, className, title, WINDOW_STYLE.WS_POPUP, 0, 0, 1, 1, default, default,
+                (HINSTANCE)PInvoke.GetModuleHandle(default(PCWSTR)).Value, null);
+        }
+
+        Handle = hwnd;
         if (Handle == 0)
         {
             throw new InvalidOperationException($"CreateWindowEx failed ({Marshal.GetLastPInvokeError()}).");
@@ -54,12 +67,14 @@ public abstract unsafe class LayeredWindow : IDisposable
 
     public bool IsVisible => _visible;
 
+    private protected HWND Hwnd => (HWND)Handle;
+
     public void Dispose()
     {
         if (Handle != 0)
         {
             Windows.Remove(Handle);
-            Native.DestroyWindow(Handle);
+            PInvoke.DestroyWindow(Hwnd);
             Handle = 0;
         }
 
@@ -68,10 +83,10 @@ public abstract unsafe class LayeredWindow : IDisposable
 
     public void Show(bool activate = false)
     {
-        Native.ShowWindow(Handle, activate ? Native.SW_SHOW : Native.SW_SHOWNOACTIVATE);
+        PInvoke.ShowWindow(Hwnd, activate ? SHOW_WINDOW_CMD.SW_SHOW : SHOW_WINDOW_CMD.SW_SHOWNOACTIVATE);
         if (activate)
         {
-            Native.SetForegroundWindow(Handle);
+            PInvoke.SetForegroundWindow(Hwnd);
         }
 
         _visible = true;
@@ -79,7 +94,7 @@ public abstract unsafe class LayeredWindow : IDisposable
 
     public void Hide()
     {
-        Native.ShowWindow(Handle, Native.SW_HIDE);
+        PInvoke.ShowWindow(Hwnd, SHOW_WINDOW_CMD.SW_HIDE);
         _visible = false;
     }
 
@@ -87,7 +102,7 @@ public abstract unsafe class LayeredWindow : IDisposable
     {
         X = x;
         Y = y;
-        Native.SetWindowPos(Handle, 0, x, y, 0, 0, Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+        PInvoke.SetWindowPos(Hwnd, default, x, y, 0, 0, SET_WINDOW_POS_FLAGS.SWP_NOSIZE | SET_WINDOW_POS_FLAGS.SWP_NOZORDER | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE);
     }
 
     /// <summary>Shows a premultiplied 0xAARRGGBB bitmap at (<paramref name="x"/>, <paramref name="y"/>).</summary>
@@ -99,49 +114,43 @@ public abstract unsafe class LayeredWindow : IDisposable
         Width = width * Scale;
         Height = height * Scale;
 
-        var screenDc = Native.GetDC(0);
-        var memoryDc = Native.CreateCompatibleDC(screenDc);
-        var header = new Native.BITMAPINFOHEADER
-        {
-            BiSize = sizeof(Native.BITMAPINFOHEADER),
-            BiWidth = Width,
-            BiHeight = -Height,
-            BiPlanes = 1,
-            BiBitCount = 32,
-        };
-        var bitmap = Native.CreateDIBSection(memoryDc, header, 0, out var bits, 0, 0);
-        var old = Native.SelectObject(memoryDc, bitmap);
+        var screenDc = PInvoke.GetDC(default);
+        var memoryDc = PInvoke.CreateCompatibleDC(screenDc);
+        var bitmap = GdiCanvas.CreateDib(memoryDc, Width, Height, out var bits);
+        var old = PInvoke.SelectObject(memoryDc, bitmap);
         try
         {
-            var target = new Span<uint>((void*)bits, Width * Height);
+            var target = new Span<uint>(bits, Width * Height);
             ScaleNearest(pixels, width, height, target, Scale);
 
-            var blend = new Native.BLENDFUNCTION
+            var blend = new BLENDFUNCTION
             {
-                BlendOp = Native.AC_SRC_OVER,
+                BlendOp = (byte)PInvoke.AC_SRC_OVER,
                 SourceConstantAlpha = 255,
-                AlphaFormat = Native.AC_SRC_ALPHA,
+                AlphaFormat = (byte)PInvoke.AC_SRC_ALPHA,
             };
-            Native.UpdateLayeredWindow(
-                Handle, screenDc, new Native.POINT(x, y), new Native.SIZE(Width, Height),
-                memoryDc, new Native.POINT(0, 0), 0, blend, Native.ULW_ALPHA);
+            var position = new System.Drawing.Point(x, y);
+            var size = new SIZE(Width, Height);
+            var origin = default(System.Drawing.Point);
+            PInvoke.UpdateLayeredWindow(
+                Hwnd, screenDc, &position, &size, memoryDc, &origin, default, &blend, UPDATE_LAYERED_WINDOW_FLAGS.ULW_ALPHA);
         }
         finally
         {
-            Native.SelectObject(memoryDc, old);
-            Native.DeleteObject(bitmap);
-            Native.DeleteDC(memoryDc);
-            Native.ReleaseDC(0, screenDc);
+            PInvoke.SelectObject(memoryDc, old);
+            PInvoke.DeleteObject(bitmap);
+            PInvoke.DeleteDC(memoryDc);
+            _ = PInvoke.ReleaseDC(default, screenDc);
         }
     }
 
     /// <summary>Work area of the monitor nearest to a point, in physical pixels.</summary>
-    internal static Native.RECT GetWorkArea(int x, int y)
+    internal static RECT GetWorkArea(int x, int y)
     {
-        var monitor = Native.MonitorFromPoint(new Native.POINT(x, y), Native.MONITOR_DEFAULTTONEAREST);
-        var info = new Native.MONITORINFO { CbSize = sizeof(Native.MONITORINFO) };
-        Native.GetMonitorInfo(monitor, ref info);
-        return info.RcWork;
+        var monitor = PInvoke.MonitorFromPoint(new System.Drawing.Point(x, y), MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
+        var info = new MONITORINFO { cbSize = (uint)sizeof(MONITORINFO) };
+        PInvoke.GetMonitorInfo(monitor, ref info);
+        return info.rcWork;
     }
 
     internal static void ScaleNearest(ReadOnlySpan<uint> source, int width, int height, Span<uint> target, int scale)
@@ -173,12 +182,12 @@ public abstract unsafe class LayeredWindow : IDisposable
 
     protected static (int X, int Y) CursorPosition()
     {
-        Native.GetCursorPos(out var point);
+        PInvoke.GetCursorPos(out var point);
         return (point.X, point.Y);
     }
 
-    protected static void SetCursor(int cursorId) =>
-        Native.SetCursor(Native.LoadCursor(0, Native.MakeIntResource(cursorId)));
+    private protected static void SetCursor(PCWSTR cursorId) =>
+        PInvoke.SetCursor(PInvoke.LoadCursor(default, cursorId));
 
     private static void RegisterClass()
     {
@@ -188,16 +197,18 @@ public abstract unsafe class LayeredWindow : IDisposable
         }
 
         var className = Marshal.StringToHGlobalUni(ClassName); // Lives for the process.
-        var wc = new Native.WNDCLASSEXW
+        var wc = new WNDCLASSEXW
         {
-            CbSize = sizeof(Native.WNDCLASSEXW),
-            Style = Native.CS_DBLCLKS,
-            LpfnWndProc = Marshal.GetFunctionPointerForDelegate(WndProcDelegate),
-            HInstance = Native.GetModuleHandle(0),
-            HCursor = Native.LoadCursor(0, Native.MakeIntResource(Native.IDC_ARROW)),
-            LpszClassName = className,
+            cbSize = (uint)sizeof(WNDCLASSEXW),
+            style = WNDCLASS_STYLES.CS_DBLCLKS,
+
+            // A static [UnmanagedCallersOnly] method: no delegate to keep alive.
+            lpfnWndProc = &StaticWndProc,
+            hInstance = (HINSTANCE)PInvoke.GetModuleHandle(default(PCWSTR)).Value,
+            hCursor = PInvoke.LoadCursor(default, PInvoke.IDC_ARROW),
+            lpszClassName = (char*)className,
         };
-        if (Native.RegisterClassEx(wc) == 0)
+        if (PInvoke.RegisterClassEx(wc) == 0)
         {
             throw new InvalidOperationException($"RegisterClassEx failed ({Marshal.GetLastPInvokeError()}).");
         }
@@ -205,15 +216,16 @@ public abstract unsafe class LayeredWindow : IDisposable
         _classRegistered = true;
     }
 
-    private static nint StaticWndProc(nint hwnd, uint message, nint wParam, nint lParam)
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static LRESULT StaticWndProc(HWND hwnd, uint message, WPARAM wParam, LPARAM lParam)
     {
         if (Windows.TryGetValue(hwnd, out var window))
         {
             try
             {
-                if (window.OnMessage(message, wParam, lParam) is { } result)
+                if (window.OnMessage(message, (nint)wParam.Value, lParam.Value) is { } result)
                 {
-                    return result;
+                    return (LRESULT)result;
                 }
             }
             catch (Exception ex)
@@ -223,6 +235,6 @@ public abstract unsafe class LayeredWindow : IDisposable
             }
         }
 
-        return Native.DefWindowProc(hwnd, message, wParam, lParam);
+        return PInvoke.DefWindowProc(hwnd, message, wParam, lParam);
     }
 }

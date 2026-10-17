@@ -1,67 +1,70 @@
 using System.Runtime.InteropServices;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.System.Memory;
+using Windows.Win32.System.Ole;
 
 namespace OfficeAssistant.Core.Interop;
 
 /// <summary>Plain-text clipboard access for the balloon's text box.</summary>
-internal static class Clipboard
+internal static unsafe class Clipboard
 {
-    public static string? GetText(nint owner)
+    public static string? GetText(HWND owner)
     {
-        if (!Native.OpenClipboard(owner))
+        if (!PInvoke.OpenClipboard(owner))
         {
             return null;
         }
 
         try
         {
-            var handle = Native.GetClipboardData(Native.CF_UNICODETEXT);
-            var pointer = handle == 0 ? 0 : Native.GlobalLock(handle);
-            if (pointer == 0)
+            var handle = (HGLOBAL)(void*)PInvoke.GetClipboardData((uint)CLIPBOARD_FORMAT.CF_UNICODETEXT);
+            var pointer = handle.IsNull ? null : PInvoke.GlobalLock(handle);
+            if (pointer is null)
             {
                 return null;
             }
 
             try
             {
-                return Marshal.PtrToStringUni(pointer);
+                return Marshal.PtrToStringUni((nint)pointer);
             }
             finally
             {
-                Native.GlobalUnlock(handle);
+                PInvoke.GlobalUnlock(handle);
             }
         }
         finally
         {
-            Native.CloseClipboard();
+            PInvoke.CloseClipboard();
         }
     }
 
-    public static void SetText(nint owner, string text)
+    public static void SetText(HWND owner, string text)
     {
-        if (!Native.OpenClipboard(owner))
+        if (!PInvoke.OpenClipboard(owner))
         {
             return;
         }
 
         try
         {
-            Native.EmptyClipboard();
-            var bytes = (text.Length + 1) * 2;
-            var handle = Native.GlobalAlloc(Native.GMEM_MOVEABLE, (nuint)bytes);
-            var pointer = Native.GlobalLock(handle);
-            Marshal.Copy(text.ToCharArray(), 0, pointer, text.Length);
-            Marshal.WriteInt16(pointer, text.Length * 2, 0);
-            Native.GlobalUnlock(handle);
+            PInvoke.EmptyClipboard();
+            var handle = PInvoke.GlobalAlloc(GLOBAL_ALLOC_FLAGS.GMEM_MOVEABLE, (nuint)((text.Length + 1) * sizeof(char)));
+            var pointer = (char*)PInvoke.GlobalLock(handle);
+            text.CopyTo(new Span<char>(pointer, text.Length));
+            pointer[text.Length] = '\0';
+            PInvoke.GlobalUnlock(handle);
 
             // On success the clipboard owns the memory.
-            if (Native.SetClipboardData(Native.CF_UNICODETEXT, handle) == 0)
+            if (PInvoke.SetClipboardData((uint)CLIPBOARD_FORMAT.CF_UNICODETEXT, (HANDLE)(void*)handle).IsNull)
             {
-                Native.GlobalFree(handle);
+                PInvoke.GlobalFree(handle);
             }
         }
         finally
         {
-            Native.CloseClipboard();
+            PInvoke.CloseClipboard();
         }
     }
 }

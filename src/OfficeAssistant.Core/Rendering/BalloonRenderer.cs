@@ -1,4 +1,7 @@
 using OfficeAssistant.Core.Interop;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.Graphics.Gdi;
 
 namespace OfficeAssistant.Core.Rendering;
 
@@ -82,7 +85,7 @@ public readonly record struct BalloonHit(BalloonHitKind Kind, string? Id)
 /// <summary>A painted balloon: pixels for the box plus tail, and where things are.</summary>
 public sealed class BalloonBitmap
 {
-    internal BalloonBitmap(int width, int height, uint[] pixels, int boxTop, int tailTipX, int tailTipY, List<(Native.RECT Rect, BalloonHit Hit)> hits, TextBoxGeometry? textBox)
+    internal BalloonBitmap(int width, int height, uint[] pixels, int boxTop, int tailTipX, int tailTipY, List<(RECT Rect, BalloonHit Hit)> hits, TextBoxGeometry? textBox)
     {
         Width = width;
         Height = height;
@@ -110,13 +113,13 @@ public sealed class BalloonBitmap
 
     public int TailTipY { get; }
 
-    internal List<(Native.RECT Rect, BalloonHit Hit)> Hits { get; }
+    internal List<(RECT Rect, BalloonHit Hit)> Hits { get; }
 
     public BalloonHit HitTest(int x, int y)
     {
         foreach (var (rect, hit) in Hits)
         {
-            if (x >= rect.Left && x < rect.Right && y >= rect.Top && y < rect.Bottom)
+            if (x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom)
             {
                 return hit;
             }
@@ -175,8 +178,8 @@ public sealed class BalloonRenderer : IDisposable
     ];
 
     private readonly GdiCanvas _measure = new(1, 1);
-    private readonly nint _regularFont;
-    private readonly nint _boldFont;
+    private readonly HFONT _regularFont;
+    private readonly HFONT _boldFont;
 
     public BalloonRenderer(string fontFace = "Tahoma", int fontHeight = -13)
     {
@@ -187,8 +190,8 @@ public sealed class BalloonRenderer : IDisposable
     public void Dispose()
     {
         _measure.Dispose();
-        Native.DeleteObject(_regularFont);
-        Native.DeleteObject(_boldFont);
+        PInvoke.DeleteObject(_regularFont);
+        PInvoke.DeleteObject(_boldFont);
     }
 
     /// <summary>Lays out the content and returns the box size (excluding the tail).</summary>
@@ -256,7 +259,7 @@ public sealed class BalloonRenderer : IDisposable
 
         PaintShape(pixels, inside, width, boxHeight, boxTop, tailSide, tailX);
 
-        var hits = new List<(Native.RECT, BalloonHit)>();
+        var hits = new List<(RECT, BalloonHit)>();
         TextBoxGeometry? textBox = null;
         foreach (var placed in layout.Blocks)
         {
@@ -310,8 +313,15 @@ public sealed class BalloonRenderer : IDisposable
         return start + content.Length;
     }
 
-    private static nint CreateFont(string face, int height, int weight) =>
-        Native.CreateFont(height, 0, 0, 0, weight, 0, 0, 0, Native.DEFAULT_CHARSET, 0, 0, Native.NONANTIALIASED_QUALITY, 0, face);
+    private static unsafe HFONT CreateFont(string face, int height, int weight)
+    {
+        fixed (char* name = face)
+        {
+            return PInvoke.CreateFont(
+                height, 0, 0, 0, weight, 0, 0, 0, FONT_CHARSET.DEFAULT_CHARSET, 0, 0,
+                FONT_QUALITY.NONANTIALIASED_QUALITY, 0, name);
+        }
+    }
 
     private static int DefaultSpacing(BalloonBlock? previous, BalloonBlock block) => (previous, block) switch
     {
@@ -359,15 +369,15 @@ public sealed class BalloonRenderer : IDisposable
         return (count * ButtonWidth(buttons)) + ((count - 1) * ButtonGap);
     }
 
-    private Native.RECT[] LayoutButtons(BalloonButtons buttons, int width, int y)
+    private RECT[] LayoutButtons(BalloonButtons buttons, int width, int y)
     {
         var count = buttons.Buttons.Count;
         var buttonWidth = ButtonWidth(buttons);
-        var rects = new Native.RECT[count];
+        var rects = new RECT[count];
         if (count == 1)
         {
             var left = (width - buttonWidth) / 2;
-            rects[0] = new Native.RECT(left, y, left + buttonWidth, y + ButtonHeight);
+            rects[0] = new RECT(left, y, left + buttonWidth, y + ButtonHeight);
             return rects;
         }
 
@@ -377,7 +387,7 @@ public sealed class BalloonRenderer : IDisposable
         for (var i = 0; i < count; i++)
         {
             var left = start + (int)Math.Round(i * (span - buttonWidth) / (double)(count - 1), MidpointRounding.AwayFromZero);
-            rects[i] = new Native.RECT(left, y, left + buttonWidth, y + ButtonHeight);
+            rects[i] = new RECT(left, y, left + buttonWidth, y + ButtonHeight);
         }
 
         return rects;
@@ -454,7 +464,7 @@ public sealed class BalloonRenderer : IDisposable
         inside[i] = true;
     }
 
-    private TextBoxGeometry? PaintBlock(GdiCanvas canvas, PlacedBlock placed, int width, int boxTop, BalloonState state, List<(Native.RECT, BalloonHit)> hits)
+    private TextBoxGeometry? PaintBlock(GdiCanvas canvas, PlacedBlock placed, int width, int boxTop, BalloonState state, List<(RECT, BalloonHit)> hits)
     {
         var y = boxTop + placed.Y;
         TextBoxGeometry? textBox = null;
@@ -472,18 +482,18 @@ public sealed class BalloonRenderer : IDisposable
             case BalloonLabel label:
                 DrawSprite(canvas, BalloonSprites.Bullet, 9, y + 4);
                 DrawLines(canvas, placed.Lines, LabelIndent, y, _regularFont, LabelColor);
-                hits.Add((new Native.RECT(Padding, y, width - Padding, y + placed.Height), new BalloonHit(BalloonHitKind.Label, label.Id)));
+                hits.Add((new RECT(Padding, y, width - Padding, y + placed.Height), new BalloonHit(BalloonHitKind.Label, label.Id)));
                 break;
 
             case BalloonSeeMore seeMore:
                 DrawSprite(canvas, BalloonSprites.SeeMoreArrow, 6, y + 5);
                 DrawLines(canvas, [seeMore.Text], LabelIndent, y, _regularFont, Border);
-                hits.Add((new Native.RECT(Padding, y, width - Padding, y + placed.Height), new BalloonHit(BalloonHitKind.Label, seeMore.Id)));
+                hits.Add((new RECT(Padding, y, width - Padding, y + placed.Height), new BalloonHit(BalloonHitKind.Label, seeMore.Id)));
                 break;
 
             case BalloonTextBox:
                 textBox = PaintTextBox(canvas, width, y, state);
-                hits.Add((new Native.RECT(Padding, y, width - Padding, y + TextBoxHeight), new BalloonHit(BalloonHitKind.TextBox, null)));
+                hits.Add((new RECT(Padding, y, width - Padding, y + TextBoxHeight), new BalloonHit(BalloonHitKind.TextBox, null)));
                 break;
 
             case BalloonSeparator:
@@ -494,8 +504,8 @@ public sealed class BalloonRenderer : IDisposable
                 for (var i = 0; i < buttons.Buttons.Count; i++)
                 {
                     var rect = placed.ButtonRects[i];
-                    rect.Top += boxTop;
-                    rect.Bottom += boxTop;
+                    rect.top += boxTop;
+                    rect.bottom += boxTop;
                     PaintButton(canvas, rect, buttons.Buttons[i].Text, i == buttons.FocusedIndex);
                     hits.Add((rect, new BalloonHit(BalloonHitKind.Button, buttons.Buttons[i].Id)));
                 }
@@ -584,29 +594,35 @@ public sealed class BalloonRenderer : IDisposable
         return result;
     }
 
-    private void PaintButton(GdiCanvas canvas, Native.RECT rect, string text, bool focused)
+    private void PaintButton(GdiCanvas canvas, RECT rect, string text, bool focused)
     {
-        var w = rect.Right - rect.Left;
-        var h = rect.Bottom - rect.Top;
-        FillRect(canvas, rect.Left + 2, rect.Top, w - 4, 1, ButtonBorder);
-        FillRect(canvas, rect.Left + 2, rect.Bottom - 1, w - 4, 1, ButtonBorder);
-        FillRect(canvas, rect.Left, rect.Top + 2, 1, h - 4, ButtonBorder);
-        FillRect(canvas, rect.Right - 1, rect.Top + 2, 1, h - 4, ButtonBorder);
-        FillRect(canvas, rect.Left + 1, rect.Top + 1, 1, 1, ButtonBorder);
-        FillRect(canvas, rect.Right - 2, rect.Top + 1, 1, 1, ButtonBorder);
-        FillRect(canvas, rect.Left + 1, rect.Bottom - 2, 1, 1, ButtonBorder);
-        FillRect(canvas, rect.Right - 2, rect.Bottom - 2, 1, 1, ButtonBorder);
+        var w = rect.right - rect.left;
+        var h = rect.bottom - rect.top;
+        FillRect(canvas, rect.left + 2, rect.top, w - 4, 1, ButtonBorder);
+        FillRect(canvas, rect.left + 2, rect.bottom - 1, w - 4, 1, ButtonBorder);
+        FillRect(canvas, rect.left, rect.top + 2, 1, h - 4, ButtonBorder);
+        FillRect(canvas, rect.right - 1, rect.top + 2, 1, h - 4, ButtonBorder);
+        FillRect(canvas, rect.left + 1, rect.top + 1, 1, 1, ButtonBorder);
+        FillRect(canvas, rect.right - 2, rect.top + 1, 1, 1, ButtonBorder);
+        FillRect(canvas, rect.left + 1, rect.bottom - 2, 1, 1, ButtonBorder);
+        FillRect(canvas, rect.right - 2, rect.bottom - 2, 1, 1, ButtonBorder);
 
-        var textRect = new Native.RECT(rect.Left, rect.Top + 3, rect.Right, rect.Top + 3 + LineHeight);
-        Native.SelectObject(canvas.Dc, _regularFont);
-        Native.SetTextColor(canvas.Dc, 0);
-        Native.DrawText(canvas.Dc, text, text.Length, ref textRect, Native.DT_SINGLELINE | Native.DT_CENTER);
+        var textRect = new RECT(rect.left, rect.top + 3, rect.right, rect.top + 3 + LineHeight);
+        PInvoke.SelectObject(canvas.Dc, _regularFont);
+        PInvoke.SetTextColor(canvas.Dc, default);
+        unsafe
+        {
+            fixed (char* chars = text)
+            {
+                PInvoke.DrawText(canvas.Dc, chars, text.Length, ref textRect, DRAW_TEXT_FORMAT.DT_SINGLELINE | DRAW_TEXT_FORMAT.DT_CENTER);
+            }
+        }
 
         if (focused)
         {
             var extent = Extent(StripMnemonic(text), _regularFont);
-            var left = rect.Left + ((w - extent) / 2) - 2;
-            DrawFocusRect(canvas, left, textRect.Top, extent + 4, LineHeight + 1);
+            var left = rect.left + ((w - extent) / 2) - 2;
+            DrawFocusRect(canvas, left, textRect.top, extent + 4, LineHeight + 1);
         }
     }
 
@@ -627,13 +643,13 @@ public sealed class BalloonRenderer : IDisposable
         }
     }
 
-    private void DrawLines(GdiCanvas canvas, IReadOnlyList<string> lines, int x, int y, nint font, uint color)
+    private void DrawLines(GdiCanvas canvas, IReadOnlyList<string> lines, int x, int y, HFONT font, uint color)
     {
-        Native.SelectObject(canvas.Dc, font);
-        Native.SetTextColor(canvas.Dc, Native.Rgb(color & 0xFFFFFF));
+        PInvoke.SelectObject(canvas.Dc, font);
+        PInvoke.SetTextColor(canvas.Dc, NativeHelpers.Rgb(color & 0xFFFFFF));
         for (var i = 0; i < lines.Count; i++)
         {
-            Native.TextOut(canvas.Dc, x, y + (i * LineHeight), lines[i], lines[i].Length);
+            PInvoke.TextOut(canvas.Dc, x, y + (i * LineHeight), lines[i], lines[i].Length);
         }
     }
 
@@ -667,23 +683,23 @@ public sealed class BalloonRenderer : IDisposable
         }
     }
 
-    private int Extent(string text, nint font)
+    private int Extent(string text, HFONT font)
     {
         if (text.Length == 0)
         {
             return 0;
         }
 
-        Native.SelectObject(_measure.Dc, font);
-        Native.GetTextExtentPoint32(_measure.Dc, text, text.Length, out var size);
-        return size.Cx;
+        PInvoke.SelectObject(_measure.Dc, font);
+        PInvoke.GetTextExtentPoint32W(_measure.Dc, text, text.Length, out var size);
+        return size.cx;
     }
 
-    private int LongestLine(string text, nint font) =>
+    private int LongestLine(string text, HFONT font) =>
         text.Split('\n').Max(line => Extent(line.TrimEnd(), font));
 
     /// <summary>Greedy word wrap equivalent to DrawText's DT_WORDBREAK. Wrapped lines keep their trailing space.</summary>
-    private List<string> Wrap(string text, int maxWidth, nint font)
+    private List<string> Wrap(string text, int maxWidth, HFONT font)
     {
         var lines = new List<string>();
         foreach (var paragraph in text.Replace("\r\n", "\n").Split('\n'))
@@ -758,7 +774,7 @@ internal sealed class PlacedBlock(BalloonBlock block, int y)
 
     public IReadOnlyList<string> Lines { get; set; } = [];
 
-    public Native.RECT[] ButtonRects { get; set; } = [];
+    public RECT[] ButtonRects { get; set; } = [];
 }
 
 /// <summary>Where the text box's text was painted, for mapping clicks to characters.</summary>
