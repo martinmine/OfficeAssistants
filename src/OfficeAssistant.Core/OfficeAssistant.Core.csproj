@@ -12,6 +12,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="AcsFormat.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Anthropic" />
     <PackageReference Include="Markdig" />
     <PackageReference Include="Microsoft.Windows.CsWin32" PrivateAssets="all" />
