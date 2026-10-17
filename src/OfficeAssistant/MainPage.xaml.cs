@@ -49,7 +49,7 @@ public sealed partial class MainPage : Page
         Loaded += OnLoaded;
         Unloaded += (_, _) => StopPreview();
 
-        // Here rather than in Loaded: the window stays hidden on launch until settings are saved.
+        // Here rather than in Loaded: the window stays hidden on launch once settings are saved.
         ViewModel.Initialize([Path.Combine(AppContext.BaseDirectory, "Assistants")]);
         if (!ViewModel.HasAssistants)
         {

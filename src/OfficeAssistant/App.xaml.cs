@@ -58,9 +58,9 @@ public partial class App : Application
             }
         };
 
-        // Open the settings window only once the user has saved settings, or when no
+        // Open the settings window only until the user has saved settings, or when no
         // assistant is on screen to open it from.
-        if (Settings.HasSavedSettings || !Assistant.IsOnScreen)
+        if (!Settings.HasSavedSettings || !Assistant.IsOnScreen)
         {
             Window.Activate();
         }
