@@ -140,12 +140,14 @@ runtime with **Add assistant files (.acs, .acg)...**.
 ## Running the tests
 
 ```powershell
-dotnet test tests\AcsFormat.Tests
+dotnet test Windows.slnf
 ```
 
-The tests parse every file in `Assistants/`, check the localized strings, text editing and
-animation playback, and render Clippit and four balloons for pixel comparisons with the
-screenshots.
+The tests parse every file in `Assistants/`, check the localized strings, text editing,
+the character's and balloon's mouse and keyboard handling, and animation playback, and
+render Clippit and four balloons for pixel comparisons with the screenshots.
+`tests/AcsFormat.Tests` runs on any OS (`dotnet test Mac.slnf` on a Mac);
+`tests/OfficeAssistant.Windows.Tests` needs GDI and DPAPI and skips itself elsewhere.
 
 ## Developer tool
 
@@ -170,10 +172,13 @@ warning icon from the screenshots into `src/OfficeAssistant.Core/Rendering/Ballo
 | Path | Contents |
 |------|----------|
 | `src/AcsFormat` | Platform-neutral parser for `.acs`/`.acg` files: localized strings, states, animations (frames, branches, exit branches, mouth overlays), images with the Agent decompressor, and WAVE sounds. |
-| `src/OfficeAssistant.Core` | Windows runtime: layered Win32 windows for the character and balloon, the Office XP balloon renderer, animation and sound playback, idling, and the conversation with Claude and MCP servers (`Chat/`). |
+| `src/OfficeAssistant.Core` | Platform-neutral runtime: the Office XP balloon renderer, the character's and balloon's mouse and keyboard handling (`Interaction/`), animation and sound playback, idling, the conversation with Claude and MCP servers (`Chat/`), and the interfaces each platform implements (`Platform/`). |
+| `src/OfficeAssistant.Platform.Windows` | The Win32 implementation of those interfaces: layered windows, GDI text, waveOut sound, the clipboard and DPAPI. |
+| `src/OfficeAssistant.Presentation` | View models shared by the app shells. |
 | `src/OfficeAssistant` | The WinUI 3 app. |
-| `tools/AcsTool` | Developer CLI described above. |
-| `tests/AcsFormat.Tests` | Unit and pixel-comparison tests. |
+| `tools/AcsTool` | Developer CLI described above (Windows only). |
+| `tests/AcsFormat.Tests` | Portable unit tests. |
+| `tests/OfficeAssistant.Windows.Tests` | GDI pixel-comparison and DPAPI tests. |
 | `Assistants/` | Original assistant files. |
 | `Screenshots/` | Office XP reference screenshots used by the tests. |
 

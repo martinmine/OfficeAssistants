@@ -5,7 +5,7 @@ using Windows.Win32.Foundation;
 using Windows.Win32.System.Memory;
 using Windows.Win32.System.Ole;
 
-namespace OfficeAssistant.Core.Windows;
+namespace OfficeAssistant.Platform.Windows;
 
 /// <summary>
 /// The Windows clipboard, as Unicode text. Setting it needs an owner window (with a null

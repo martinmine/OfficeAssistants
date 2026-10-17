@@ -1,7 +1,8 @@
+using AcsFormat.Tests;
 using OfficeAssistant.Core;
 using OfficeAssistant.Core.Rendering;
 
-namespace AcsFormat.Tests;
+namespace OfficeAssistant.Windows.Tests;
 
 /// <summary>
 /// Renders the balloons from the reference screenshots and requires every pixel of the

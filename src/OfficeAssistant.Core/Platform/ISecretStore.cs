@@ -7,6 +7,9 @@ namespace OfficeAssistant.Core.Platform;
 /// </summary>
 public interface ISecretStore
 {
+    /// <summary>Where a saved secret is kept, to finish "An API key is saved, ...", for example "encrypted for your Windows account".</summary>
+    string Description { get; }
+
     string Protect(string secret);
 
     /// <summary>The secret behind a stored value, or null if it can't be recovered.</summary>

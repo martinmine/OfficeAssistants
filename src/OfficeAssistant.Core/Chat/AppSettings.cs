@@ -14,6 +14,9 @@ public sealed class AppSettings
     /// <summary>Pixel size (1 to 4) the user picked, or null to follow the display's scaling.</summary>
     public int? PixelSize { get; set; }
 
+    /// <summary>Silences the gallery preview only; the assistant keeps its own sound setting.</summary>
+    public bool PreviewMuted { get; set; }
+
     /// <summary>The API key as protected by the platform's <see cref="ISecretStore"/> (encrypted with DPAPI on Windows, a Keychain reference on macOS).</summary>
     public string? ProtectedApiKey { get; set; }
 

@@ -8,6 +8,8 @@
   <Folder Name="/src/">
     <Project Path="src/AcsFormat/AcsFormat.csproj" />
     <Project Path="src/OfficeAssistant.Core/OfficeAssistant.Core.csproj" />
+    <Project Path="src/OfficeAssistant.Platform.Windows/OfficeAssistant.Platform.Windows.csproj" />
+    <Project Path="src/OfficeAssistant.Presentation/OfficeAssistant.Presentation.csproj" />
     <Project Path="src/OfficeAssistant/OfficeAssistant.csproj">
       <Platform Solution="*|Any CPU" Project="x64" />
       <Platform Solution="*|ARM64" Project="ARM64" />
@@ -18,6 +20,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AcsFormat.Tests/AcsFormat.Tests.csproj" />
+    <Project Path="tests/OfficeAssistant.Windows.Tests/OfficeAssistant.Windows.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/AcsTool/AcsTool.csproj" />

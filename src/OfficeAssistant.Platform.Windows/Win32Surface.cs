@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using OfficeAssistant.Core.Interop;
 using OfficeAssistant.Core.Platform;
 using Windows.Win32;
 using Windows.Win32.Foundation;
@@ -8,7 +7,7 @@ using Windows.Win32.Graphics.Gdi;
 using Windows.Win32.UI.Input.KeyboardAndMouse;
 using Windows.Win32.UI.WindowsAndMessaging;
 
-namespace OfficeAssistant.Core.Windows;
+namespace OfficeAssistant.Platform.Windows;
 
 /// <summary>
 /// A borderless top-most popup whose content is a per-pixel-alpha bitmap pushed with

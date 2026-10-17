@@ -1,10 +1,9 @@
-using OfficeAssistant.Core.Interop;
 using OfficeAssistant.Core.Platform;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Gdi;
 
-namespace OfficeAssistant.Core.Windows;
+namespace OfficeAssistant.Platform.Windows;
 
 /// <summary>
 /// Balloon text drawn by GDI with a non-antialiased font, exactly as Office XP drew it.

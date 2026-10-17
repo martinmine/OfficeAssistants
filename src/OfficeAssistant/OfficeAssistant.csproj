@@ -39,6 +39,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\OfficeAssistant.Core\OfficeAssistant.Core.csproj" />
+    <ProjectReference Include="..\OfficeAssistant.Platform.Windows\OfficeAssistant.Platform.Windows.csproj" />
+    <ProjectReference Include="..\OfficeAssistant.Presentation\OfficeAssistant.Presentation.csproj" />
   </ItemGroup>
 
   <!--

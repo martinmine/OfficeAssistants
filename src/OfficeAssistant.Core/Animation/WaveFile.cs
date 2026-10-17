@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 namespace OfficeAssistant.Core.Animation;
 
 /// <summary>Finds the format and the samples in a RIFF WAVE file.</summary>
-internal static class WaveFile
+public static class WaveFile
 {
     /// <summary>
     /// Locates the "fmt " and "data" chunks. Offsets and lengths are in bytes from the start

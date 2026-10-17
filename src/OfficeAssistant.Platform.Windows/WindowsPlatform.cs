@@ -1,7 +1,7 @@
 using OfficeAssistant.Core.Platform;
 using Windows.Win32;
 
-namespace OfficeAssistant.Core.Windows;
+namespace OfficeAssistant.Platform.Windows;
 
 /// <summary>The Win32 implementation: layered windows, GDI text, waveOut sound and DPAPI.</summary>
 public sealed class WindowsPlatform : IPlatform

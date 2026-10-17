@@ -1,7 +1,7 @@
 using Microsoft.UI.Xaml;
 using OfficeAssistant.Core;
 using OfficeAssistant.Core.Chat;
-using OfficeAssistant.Core.Windows;
+using OfficeAssistant.Platform.Windows;
 
 namespace OfficeAssistant;
 

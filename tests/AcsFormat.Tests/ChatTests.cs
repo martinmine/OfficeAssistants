@@ -1,7 +1,6 @@
 using System.Text.Json;
 using OfficeAssistant.Core.Chat;
 using OfficeAssistant.Core.Rendering;
-using OfficeAssistant.Core.Windows;
 
 namespace AcsFormat.Tests;
 
@@ -97,20 +96,21 @@ public class ChatTests
         Assert.Throws<JsonException>(() => SettingsStore.ParseMcpServers("""{ "broken": { "args": [] } }"""));
     }
 
-    [WindowsFact]
-    public void SettingsRoundTripWithEncryptedKey()
+    [Fact]
+    public void SettingsRoundTripWithProtectedKey()
     {
         var path = Path.Combine(Path.GetTempPath(), $"oa-settings-{Guid.NewGuid():N}.json");
+        var secrets = new FakeSecretStore();
         try
         {
-            var store = new SettingsStore(path, new DpapiSecretStore()) { ApiKey = "sk-ant-test" };
+            var store = new SettingsStore(path, secrets) { ApiKey = "sk-ant-test" };
             store.Settings.Model = "claude-sonnet-5-5";
             store.Settings.GetProfile("CLIPPIT").Instructions = "Be brief.";
             store.Save();
 
             Assert.DoesNotContain("sk-ant-test", File.ReadAllText(path));
 
-            var loaded = new SettingsStore(path, new DpapiSecretStore());
+            var loaded = new SettingsStore(path, secrets);
             Assert.Equal("sk-ant-test", loaded.ApiKey);
             Assert.Equal("claude-sonnet-5-5", loaded.Settings.Model);
             Assert.Equal("Be brief.", loaded.Settings.GetProfile("clippit").Instructions);
@@ -127,9 +127,9 @@ public class ChatTests
         var path = Path.Combine(Path.GetTempPath(), $"oa-settings-{Guid.NewGuid():N}.json");
         try
         {
-            File.WriteAllText(path, """{"PreviewMuted":true}""");
+            File.WriteAllText(path, """{"SomeFutureSetting":true}""");
             new SettingsStore(path).Save();
-            Assert.Contains("\"PreviewMuted\": true", File.ReadAllText(path));
+            Assert.Contains("\"SomeFutureSetting\": true", File.ReadAllText(path));
         }
         finally
         {
@@ -137,10 +137,10 @@ public class ChatTests
         }
     }
 
-    [WindowsFact]
+    [Fact]
     public void ChatBalloonsLayOut()
     {
-        using var renderer = TestFiles.CreateBalloonRenderer();
+        using var renderer = new BalloonRenderer(new FixedWidthText());
         var input = new Dictionary<string, JsonElement> { ["path"] = JsonSerializer.SerializeToElement(new string('x', 200)) };
         BalloonContent[] balloons =
         [

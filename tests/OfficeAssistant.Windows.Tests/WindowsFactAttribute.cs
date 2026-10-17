@@ -1,4 +1,4 @@
-namespace AcsFormat.Tests;
+namespace OfficeAssistant.Windows.Tests;
 
 /// <summary>A fact that needs Windows (GDI or DPAPI) and is skipped on other platforms.</summary>
 public sealed class WindowsFactAttribute : FactAttribute

@@ -1,0 +1,11 @@
+{
+  "solution": {
+    "path": "OfficeAssistant.slnx",
+    "projects": [
+      "src/AcsFormat/AcsFormat.csproj",
+      "src/OfficeAssistant.Core/OfficeAssistant.Core.csproj",
+      "src/OfficeAssistant.Presentation/OfficeAssistant.Presentation.csproj",
+      "tests/AcsFormat.Tests/AcsFormat.Tests.csproj"
+    ]
+  }
+}

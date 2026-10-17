@@ -4,19 +4,27 @@ using System.Text.Json;
 using AcsFormat;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.UI.Xaml.Controls;
 using OfficeAssistant.Core;
 using OfficeAssistant.Core.Chat;
 
-namespace OfficeAssistant.ViewModels;
+namespace OfficeAssistant.Presentation;
 
 public sealed record LanguageOption(int Id, string DisplayName)
 {
     public override string ToString() => DisplayName;
 }
 
+/// <summary>How an MCP server's connection is going, for colouring its status.</summary>
+public enum McpServerStatus
+{
+    Informational,
+    Success,
+    Warning,
+    Error,
+}
+
 /// <summary>One configured MCP server and how its connection is going.</summary>
-public sealed record McpServerItem(string Name, string Summary, InfoBarSeverity Severity, string Tools);
+public sealed record McpServerItem(string Name, string Summary, McpServerStatus Status, string Tools);
 
 /// <summary>
 /// State for the gallery (choosing an assistant, like Office's "Gallery" tab), the
@@ -30,11 +38,6 @@ public partial class MainPageViewModel : ObservableObject
     private IReadOnlyList<AssistantDefinition> _assistants = [];
     private bool _updatingLanguage;
 
-    public MainPageViewModel()
-        : this(App.Assistant, App.Settings)
-    {
-    }
-
     public MainPageViewModel(AssistantController assistant, SettingsStore settings)
     {
         _assistant = assistant;
@@ -44,6 +47,7 @@ public partial class MainPageViewModel : ObservableObject
         _assistant.Mcp.Changed += (_, _) => RefreshMcpServers();
         Model = _settings.Settings.Model;
         ScaleIndex = _settings.Settings.PixelSize ?? 0;
+        PreviewMuted = _settings.Settings.PreviewMuted;
         RefreshApiKeyStatus();
     }
 
@@ -98,7 +102,7 @@ public partial class MainPageViewModel : ObservableObject
     /// <summary>Silences the gallery preview only; the assistant keeps "Make sounds".</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PreviewMuteGlyph), nameof(PreviewMuteLabel))]
-    public partial bool PreviewMuted { get; set; } = LoadPreviewMuted();
+    public partial bool PreviewMuted { get; set; }
 
     /// <summary>Segoe Fluent Icons: Mute or Volume.</summary>
     public string PreviewMuteGlyph => PreviewMuted ? "" : "";
@@ -360,25 +364,10 @@ public partial class MainPageViewModel : ObservableObject
 
     partial void OnPreviewMutedChanged(bool value)
     {
-        try
+        if (value != _settings.Settings.PreviewMuted)
         {
-            Windows.Storage.ApplicationData.Current.LocalSettings.Values[nameof(PreviewMuted)] = value;
-        }
-        catch (InvalidOperationException)
-        {
-            // No package identity (unpackaged run): the setting just isn't remembered.
-        }
-    }
-
-    private static bool LoadPreviewMuted()
-    {
-        try
-        {
-            return Windows.Storage.ApplicationData.Current.LocalSettings.Values[nameof(PreviewMuted)] is true;
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
+            _settings.Settings.PreviewMuted = value;
+            _settings.Save();
         }
     }
 
@@ -426,14 +415,14 @@ public partial class MainPageViewModel : ObservableObject
         McpServers.Clear();
         foreach (var server in _assistant.Mcp.Servers)
         {
-            var severity = server.State switch
+            var status = server.State switch
             {
-                McpServerState.Connected => InfoBarSeverity.Success,
-                McpServerState.Failed => InfoBarSeverity.Error,
-                McpServerState.Disabled => InfoBarSeverity.Warning,
-                _ => InfoBarSeverity.Informational,
+                McpServerState.Connected => McpServerStatus.Success,
+                McpServerState.Failed => McpServerStatus.Error,
+                McpServerState.Disabled => McpServerStatus.Warning,
+                _ => McpServerStatus.Informational,
             };
-            McpServers.Add(new McpServerItem(server.Name, server.Summary, severity, string.Join(", ", server.Tools.Select(t => t.Tool.Name))));
+            McpServers.Add(new McpServerItem(server.Name, server.Summary, status, string.Join(", ", server.Tools.Select(t => t.Tool.Name))));
         }
     }
 
@@ -441,7 +430,7 @@ public partial class MainPageViewModel : ObservableObject
     {
         HasStoredApiKey = _settings.ApiKey is not null;
         ApiKeyStatus = HasStoredApiKey
-            ? "An API key is saved, encrypted for your Windows account."
+            ? $"An API key is saved, {_assistant.Platform.Secrets.Description}."
             : !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY"))
                 ? "Using the key from the ANTHROPIC_API_KEY environment variable."
                 : "No key saved. Paste a Claude API key from platform.claude.com, or set the ANTHROPIC_API_KEY environment variable.";

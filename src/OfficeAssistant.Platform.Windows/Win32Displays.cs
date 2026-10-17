@@ -3,7 +3,7 @@ using Windows.Win32;
 using Windows.Win32.Graphics.Gdi;
 using Windows.Win32.UI.HiDpi;
 
-namespace OfficeAssistant.Core.Windows;
+namespace OfficeAssistant.Platform.Windows;
 
 /// <summary>Monitors in physical pixels (the process is per-monitor DPI aware).</summary>
 public sealed unsafe class Win32Displays : IDisplays

@@ -197,6 +197,8 @@ internal sealed class FakeSecretStore : ISecretStore
 {
     private readonly Dictionary<string, string> _secrets = [];
 
+    public string Description => "in memory";
+
     public string Protect(string secret)
     {
         var id = $"fake:{_secrets.Count}";

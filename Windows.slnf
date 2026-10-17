@@ -1,0 +1,15 @@
+{
+  "solution": {
+    "path": "OfficeAssistant.slnx",
+    "projects": [
+      "src/AcsFormat/AcsFormat.csproj",
+      "src/OfficeAssistant.Core/OfficeAssistant.Core.csproj",
+      "src/OfficeAssistant.Platform.Windows/OfficeAssistant.Platform.Windows.csproj",
+      "src/OfficeAssistant.Presentation/OfficeAssistant.Presentation.csproj",
+      "src/OfficeAssistant/OfficeAssistant.csproj",
+      "tests/AcsFormat.Tests/AcsFormat.Tests.csproj",
+      "tests/OfficeAssistant.Windows.Tests/OfficeAssistant.Windows.Tests.csproj",
+      "tools/AcsTool/AcsTool.csproj"
+    ]
+  }
+}

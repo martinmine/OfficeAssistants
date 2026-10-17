@@ -4,7 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
 using OfficeAssistant.Core.Animation;
-using OfficeAssistant.ViewModels;
+using OfficeAssistant.Presentation;
 
 namespace OfficeAssistant;
 
@@ -59,7 +59,7 @@ public sealed partial class MainPage : Page
         }
     }
 
-    public MainPageViewModel ViewModel { get; } = new();
+    public MainPageViewModel ViewModel { get; } = new(App.Assistant, App.Settings);
 
     /// <summary>The preview uses the assistant's pixel size, including the automatic one.</summary>
     private static int PreviewScale => App.Assistant.Scale;

@@ -1,6 +1,6 @@
 ﻿using AcsFormat;
 using OfficeAssistant.Core.Rendering;
-using OfficeAssistant.Core.Windows;
+using OfficeAssistant.Platform.Windows;
 using StbImageWriteSharp;
 
 // Developer tool: inspect ACS/ACG files, export their frames and sounds, and render

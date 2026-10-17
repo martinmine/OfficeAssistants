@@ -2,7 +2,7 @@ using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.UI.Input.KeyboardAndMouse;
 
-namespace OfficeAssistant.Core.Interop;
+namespace OfficeAssistant.Platform.Windows;
 
 /// <summary>Small Win32 helpers that the generated <see cref="PInvoke"/> class does not provide.</summary>
 internal static class NativeHelpers

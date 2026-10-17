@@ -4,7 +4,7 @@ using OfficeAssistant.Core.Platform;
 using Windows.Win32;
 using Windows.Win32.Media.Audio;
 
-namespace OfficeAssistant.Core.Windows;
+namespace OfficeAssistant.Platform.Windows;
 
 /// <summary>
 /// Plays WAVE clips through its own waveOut device handle, so two outputs (the floating

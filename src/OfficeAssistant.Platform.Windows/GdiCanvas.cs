@@ -1,7 +1,7 @@
 using Windows.Win32;
 using Windows.Win32.Graphics.Gdi;
 
-namespace OfficeAssistant.Core.Windows;
+namespace OfficeAssistant.Platform.Windows;
 
 /// <summary>
 /// A top-down 32-bit DIB selected into a memory DC, so it can be drawn on both with GDI
