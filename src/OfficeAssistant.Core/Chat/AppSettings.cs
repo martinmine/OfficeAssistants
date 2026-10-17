@@ -95,6 +95,9 @@ public sealed class SettingsStore
 
     public AppSettings Settings { get; }
 
+    /// <summary>Whether settings were ever saved, i.e. the user has set something up.</summary>
+    public bool HasSavedSettings => File.Exists(Path);
+
     /// <summary>Raised after <see cref="Save"/>.</summary>
     public event EventHandler? Saved;
 

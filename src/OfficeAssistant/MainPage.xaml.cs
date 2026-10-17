@@ -48,6 +48,14 @@ public sealed partial class MainPage : Page
 
         Loaded += OnLoaded;
         Unloaded += (_, _) => StopPreview();
+
+        // Here rather than in Loaded: the window stays hidden on launch until settings are saved.
+        ViewModel.Initialize([Path.Combine(AppContext.BaseDirectory, "Assistants")]);
+        if (!ViewModel.HasAssistants)
+        {
+            ViewModel.GalleryName = "No assistant files found";
+            ViewModel.GalleryDescription = "Add .acs or .acg files to get started.";
+        }
     }
 
     public MainPageViewModel ViewModel { get; } = new();
@@ -73,17 +81,17 @@ public sealed partial class MainPage : Page
                 }
             }
         };
-        ViewModel.Initialize([Path.Combine(AppContext.BaseDirectory, "Assistants")]);
-        if (!ViewModel.HasAssistants)
-        {
-            ViewModel.GalleryName = "No assistant files found";
-            ViewModel.GalleryDescription = "Add .acs or .acg files to get started.";
-        }
+        StartPreview();
     }
 
     private void StartPreview()
     {
         StopPreview();
+        if (App.Window?.AppWindow.IsVisible != true)
+        {
+            return;
+        }
+
         _previewCharacter = ViewModel.GalleryCharacter;
         if (_previewCharacter is null)
         {
