@@ -13,7 +13,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>true</ImplicitUsings>
     <SupportedOSPlatformVersion>12.0</SupportedOSPlatformVersion>
-    <RuntimeIdentifiers>osx-arm64;osx-x64</RuntimeIdentifiers>
+    <!-- Release builds are universal; Debug builds only for this Mac, which is faster. -->
+    <RuntimeIdentifiers Condition="'$(Configuration)' == 'Release'">osx-arm64;osx-x64</RuntimeIdentifiers>
 
     <!--
       .NET for macOS checks that Xcode is exactly the version it was built against. Newer

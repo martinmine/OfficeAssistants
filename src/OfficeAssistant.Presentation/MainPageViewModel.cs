@@ -146,6 +146,12 @@ public partial class MainPageViewModel : ObservableObject
 
     public bool HasAssistants => _assistants.Count > 0;
 
+    /// <summary>The assistants found, in gallery order.</summary>
+    public IReadOnlyList<AssistantDefinition> Assistants => _assistants;
+
+    /// <summary>The assistant on screen (or last on screen), if any.</summary>
+    public AssistantDefinition? ActiveAssistant => _assistant.Definition;
+
     public string SettingsPath => _settings.Path;
 
     /// <summary>Loads assistants from the folders and shows the first one (Clippit if present).</summary>
