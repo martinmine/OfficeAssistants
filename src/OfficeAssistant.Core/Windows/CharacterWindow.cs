@@ -72,15 +72,19 @@ public sealed unsafe class CharacterWindow : LayeredWindow
             }
 
             case PInvoke.WM_LBUTTONUP when _pressed:
+            {
+                // ReleaseCapture sends WM_CAPTURECHANGED right away, which resets the drag state.
+                var wasDragging = _dragging;
                 _pressed = false;
+                _dragging = false;
                 PInvoke.ReleaseCapture();
-                if (!_dragging)
+                if (!wasDragging)
                 {
                     Clicked?.Invoke(this, EventArgs.Empty);
                 }
 
-                _dragging = false;
                 return 0;
+            }
 
             case PInvoke.WM_CAPTURECHANGED:
                 _pressed = false;
