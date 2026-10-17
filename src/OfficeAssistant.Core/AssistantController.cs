@@ -84,6 +84,9 @@ public sealed class AssistantController : IDisposable, IChatHost
 
     public bool IsShown => _window.IsVisible && !_hiding;
 
+    /// <summary>True while the character is on screen, including while its hide animation plays.</summary>
+    public bool IsOnScreen => _window.IsVisible;
+
     public bool IsBusy => _chat?.IsBusy == true;
 
     /// <summary>Windows language id used for the character's localized strings.</summary>

@@ -47,6 +47,17 @@ public partial class App : Application
         Assistant = new AssistantController(Settings);
         Window = new MainWindow();
         Window.Closed += (_, _) => Assistant.Dispose();
+
+        // Once the window was closed to the assistant, hiding the assistant exits the app.
+        Assistant.VisibilityChanged += (_, _) =>
+        {
+            if (!Assistant.IsOnScreen && !Window.AppWindow.IsVisible)
+            {
+                // Deferred so the assistant isn't disposed from inside its own animation callback.
+                DispatcherQueue.TryEnqueue(() => Window.Close());
+            }
+        };
+
         Window.Activate();
     }
 }

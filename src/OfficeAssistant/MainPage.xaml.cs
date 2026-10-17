@@ -57,6 +57,22 @@ public sealed partial class MainPage : Page
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         XamlRoot.Changed += (_, _) => UpdatePreviewSize();
+
+        // Don't keep the gallery preview (and its sounds) running while the window is hidden.
+        App.Window.AppWindow.Changed += (window, change) =>
+        {
+            if (change.DidVisibilityChange)
+            {
+                if (window.IsVisible)
+                {
+                    StartPreview();
+                }
+                else
+                {
+                    StopPreview();
+                }
+            }
+        };
         ViewModel.Initialize([Path.Combine(AppContext.BaseDirectory, "Assistants")]);
         if (!ViewModel.HasAssistants)
         {
