@@ -1,4 +1,4 @@
-namespace OfficeAssistant.Core.Windows;
+namespace OfficeAssistant.Core.Interaction;
 
 /// <summary>Word boundaries for the balloon text box, following the Windows edit control.</summary>
 public static class TextEditing

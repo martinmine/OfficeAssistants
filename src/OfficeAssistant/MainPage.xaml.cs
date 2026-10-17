@@ -100,7 +100,7 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        _previewSounds = new SoundPlayer(_previewCharacter) { Enabled = !ViewModel.PreviewMuted };
+        _previewSounds = new SoundPlayer(_previewCharacter, App.Assistant.Platform.CreateAudioOutput()) { Enabled = !ViewModel.PreviewMuted };
         _previewPlayer = new AnimationPlayer(_previewCharacter, ShowPreviewFrame, _previewSounds.Play);
         PlayPreview();
     }

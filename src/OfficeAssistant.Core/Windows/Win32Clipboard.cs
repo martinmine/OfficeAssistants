@@ -1,17 +1,21 @@
 using System.Runtime.InteropServices;
+using OfficeAssistant.Core.Platform;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.System.Memory;
 using Windows.Win32.System.Ole;
 
-namespace OfficeAssistant.Core.Interop;
+namespace OfficeAssistant.Core.Windows;
 
-/// <summary>Plain-text clipboard access for the balloon's text box.</summary>
-internal static unsafe class Clipboard
+/// <summary>
+/// The Windows clipboard, as Unicode text. Setting it needs an owner window (with a null
+/// owner SetClipboardData fails), so the platform passes the balloon's window.
+/// </summary>
+public sealed unsafe class Win32Clipboard(Func<nint> owner) : IClipboard
 {
-    public static string? GetText(HWND owner)
+    public string? GetText()
     {
-        if (!PInvoke.OpenClipboard(owner))
+        if (!PInvoke.OpenClipboard((HWND)owner()))
         {
             return null;
         }
@@ -40,9 +44,9 @@ internal static unsafe class Clipboard
         }
     }
 
-    public static void SetText(HWND owner, string text)
+    public void SetText(string text)
     {
-        if (!PInvoke.OpenClipboard(owner))
+        if (!PInvoke.OpenClipboard((HWND)owner()))
         {
             return;
         }

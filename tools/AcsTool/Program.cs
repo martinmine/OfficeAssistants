@@ -1,5 +1,6 @@
 ﻿using AcsFormat;
 using OfficeAssistant.Core.Rendering;
+using OfficeAssistant.Core.Windows;
 using StbImageWriteSharp;
 
 // Developer tool: inspect ACS/ACG files, export their frames and sounds, and render
@@ -134,7 +135,7 @@ static void RenderBalloon(string scenario, string output, int tailX, bool tailOn
             throw new ArgumentException($"Unknown scenario '{scenario}'.");
     }
 
-    using var renderer = new BalloonRenderer();
+    using var renderer = new BalloonRenderer(new GdiTextRenderer(BalloonRenderer.FontFace, BalloonRenderer.FontPixelHeight));
     var layout = renderer.Measure(content, state);
     var bitmap = renderer.Render(layout, state, tailOnTop ? BalloonTailSide.Top : BalloonTailSide.Bottom, tailX);
     SavePng(output, bitmap.Width, bitmap.Height, bitmap.Pixels);

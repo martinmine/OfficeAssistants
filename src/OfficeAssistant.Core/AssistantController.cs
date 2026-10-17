@@ -1,5 +1,6 @@
 using AcsFormat;
 using OfficeAssistant.Core.Chat;
+using OfficeAssistant.Core.Platform;
 using OfficeAssistant.Core.Rendering;
 
 namespace OfficeAssistant.Core;
@@ -26,17 +27,18 @@ public sealed class AssistantController : IDisposable, IChatHost
     private readonly BalloonCoordinator _balloon;
     private readonly ConversationController _conversation;
 
-    public AssistantController(SettingsStore settings)
+    public AssistantController(IPlatform platform, SettingsStore settings)
     {
-        _character = new CharacterPresenter(settings.Settings.PixelSize);
-        _balloon = new BalloonCoordinator(_character);
+        Platform = platform;
+        _character = new CharacterPresenter(platform, settings.Settings.PixelSize);
+        _balloon = new BalloonCoordinator(platform, _character);
         _conversation = new ConversationController(settings, _character, _balloon);
 
         _character.VisibilityChanged += (_, _) => VisibilityChanged?.Invoke(this, EventArgs.Empty);
         _character.AnimationStarted += (_, name) => AnimationStarted?.Invoke(this, name);
-        _character.Window.Clicked += (_, _) => OnCharacterClicked();
-        _character.Window.DoubleClicked += (_, _) => Animate();
-        _character.Window.ContextMenuRequested += (_, point) => ShowContextMenu(point.X, point.Y);
+        _character.Interaction.Clicked += (_, _) => OnCharacterClicked();
+        _character.Interaction.DoubleClicked += (_, _) => Animate();
+        _character.Interaction.ContextMenuRequested += (_, point) => ShowContextMenu(point.X, point.Y);
         _balloon.Window.ButtonClicked += (_, id) => OnBalloonButton(id);
         _balloon.Window.LabelClicked += (_, id) => OnBalloonLabel(id);
         _balloon.Window.Dismissed += (_, _) => _conversation.Dismiss();
@@ -50,6 +52,9 @@ public sealed class AssistantController : IDisposable, IChatHost
 
     /// <summary>Raised with the animation name whenever one starts.</summary>
     public event EventHandler<string>? AnimationStarted;
+
+    /// <summary>The operating system services the assistant runs on.</summary>
+    public IPlatform Platform { get; }
 
     public AssistantDefinition? Definition { get; private set; }
 
@@ -210,13 +215,13 @@ public sealed class AssistantController : IDisposable, IChatHost
 
     private void ShowContextMenu(int x, int y)
     {
-        var choice = _character.Window.ShowMenu(x, y,
+        var choice = _character.Interaction.ShowMenu(x, y,
         [
-            (MenuHide, "&Hide", true),
-            (MenuOptions, "&Options...", true),
-            (MenuChoose, "&Choose Assistant...", true),
-            (MenuNewTopic, "&New Topic", _conversation.HasHistory || IsBusy),
-            (MenuAnimate, "&Animate!", true),
+            new(MenuHide, "&Hide"),
+            new(MenuOptions, "&Options..."),
+            new(MenuChoose, "&Choose Assistant..."),
+            new(MenuNewTopic, "&New Topic", _conversation.HasHistory || IsBusy),
+            new(MenuAnimate, "&Animate!"),
         ]);
 
         switch (choice)

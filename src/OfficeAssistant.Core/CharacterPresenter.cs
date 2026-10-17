@@ -1,6 +1,7 @@
 using AcsFormat;
 using OfficeAssistant.Core.Animation;
-using OfficeAssistant.Core.Windows;
+using OfficeAssistant.Core.Interaction;
+using OfficeAssistant.Core.Platform;
 
 namespace OfficeAssistant.Core;
 
@@ -10,7 +11,9 @@ namespace OfficeAssistant.Core;
 /// </summary>
 internal sealed class CharacterPresenter : IDisposable
 {
-    private readonly CharacterWindow _window = new();
+    private readonly IPlatform _platform;
+    private readonly CharacterInteraction _interaction;
+    private readonly IFloatingSurface _window;
     private readonly UiTimer _idleTimer = new();
     private readonly Random _random = new();
 
@@ -24,10 +27,13 @@ internal sealed class CharacterPresenter : IDisposable
     private int? _preferredScale;
     private bool _soundsEnabled = true;
 
-    public CharacterPresenter(int? preferredScale)
+    public CharacterPresenter(IPlatform platform, int? preferredScale)
     {
+        _platform = platform;
+        _interaction = new CharacterInteraction(platform);
+        _window = _interaction.Surface;
         _preferredScale = ClampScale(preferredScale);
-        _window.Moved += (_, _) => OnMoved();
+        _interaction.Moved += (_, _) => OnMoved();
     }
 
     public event EventHandler? VisibilityChanged;
@@ -38,8 +44,8 @@ internal sealed class CharacterPresenter : IDisposable
     /// <summary>Raised when the character moved or changed size, so the balloon can follow.</summary>
     public event EventHandler? BoundsChanged;
 
-    /// <summary>The character's window, for its click and menu events.</summary>
-    public CharacterWindow Window => _window;
+    /// <summary>The character's mouse handling, for its click and menu events.</summary>
+    public CharacterInteraction Interaction => _interaction;
 
     public AcsCharacter? Character { get; private set; }
 
@@ -93,7 +99,7 @@ internal sealed class CharacterPresenter : IDisposable
     {
         Unload();
         Character = character;
-        _sounds = new SoundPlayer(character) { Enabled = SoundsEnabled };
+        _sounds = new SoundPlayer(character, _platform.CreateAudioOutput()) { Enabled = SoundsEnabled };
         _player = new AnimationPlayer(character, frame => Present(frame, _window.X, _window.Y), _sounds.Play);
     }
 
@@ -120,10 +126,10 @@ internal sealed class CharacterPresenter : IDisposable
 
         if (!_positioned)
         {
-            var work = LayeredWindow.GetWorkArea(0, 0);
-            _scale = _preferredScale ?? ScaleForDpi(LayeredWindow.GetDpiAt(work.right - 1, work.bottom - 1));
-            var x = work.right - (Character.Width * _scale) - 40;
-            var y = work.bottom - (Character.Height * _scale) - 40;
+            var work = _platform.Displays.WorkAreaAt(0, 0);
+            _scale = _preferredScale ?? ScaleForDpi(_platform.Displays.DpiAt(work.Right - 1, work.Bottom - 1));
+            var x = work.Right - (Character.Width * _scale) - 40;
+            var y = work.Bottom - (Character.Height * _scale) - 40;
             _window.MoveTo(x, y);
             _positioned = true;
         }
@@ -203,7 +209,7 @@ internal sealed class CharacterPresenter : IDisposable
     {
         Unload();
         _idleTimer.Dispose();
-        _window.Dispose();
+        _interaction.Dispose();
     }
 
     private static int? ClampScale(int? scale) => scale is { } value ? Math.Clamp(value, 1, 4) : null;
@@ -288,7 +294,7 @@ internal sealed class CharacterPresenter : IDisposable
     /// when the scale changes, so the choice can't flip back and forth at a monitor edge.
     /// </summary>
     private int ScaleForDisplay() =>
-        ScaleForDpi(LayeredWindow.GetDpiAt(_window.X, _window.Y + Math.Max(0, _window.Height - 1)));
+        ScaleForDpi(_platform.Displays.DpiAt(_window.X, _window.Y + Math.Max(0, _window.Height - 1)));
 
     private void ApplyScale(int value)
     {

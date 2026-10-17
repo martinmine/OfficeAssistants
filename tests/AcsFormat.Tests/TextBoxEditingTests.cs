@@ -1,5 +1,5 @@
 using OfficeAssistant.Core.Rendering;
-using OfficeAssistant.Core.Windows;
+using OfficeAssistant.Core.Interaction;
 
 namespace AcsFormat.Tests;
 
@@ -43,7 +43,7 @@ public class TextBoxEditingTests
     [WindowsFact]
     public void ClicksMapToCharacterPositions()
     {
-        using var renderer = new BalloonRenderer();
+        using var renderer = TestFiles.CreateBalloonRenderer();
         var state = new BalloonState { TextBoxText = "Print merged documents", TextBoxFocused = true };
         var layout = renderer.Measure(BalloonScenarios.AnswerWizard(), state);
         var bitmap = renderer.Render(layout, state, BalloonTailSide.Bottom, 90);
@@ -58,7 +58,7 @@ public class TextBoxEditingTests
     [WindowsFact]
     public void PartialSelectionIsHighlightedOnlyWhileFocused()
     {
-        using var renderer = new BalloonRenderer();
+        using var renderer = TestFiles.CreateBalloonRenderer();
         var state = new BalloonState { TextBoxText = "Print merged documents", TextBoxFocused = true };
         state.Select(6, 12);
         var layout = renderer.Measure(BalloonScenarios.AnswerWizard(), state);

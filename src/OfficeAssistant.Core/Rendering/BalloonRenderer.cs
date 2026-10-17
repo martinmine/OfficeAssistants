@@ -1,7 +1,4 @@
-using OfficeAssistant.Core.Interop;
-using Windows.Win32;
-using Windows.Win32.Foundation;
-using Windows.Win32.Graphics.Gdi;
+using OfficeAssistant.Core.Platform;
 
 namespace OfficeAssistant.Core.Rendering;
 
@@ -85,7 +82,7 @@ public readonly record struct BalloonHit(BalloonHitKind Kind, string? Id)
 /// <summary>A painted balloon: pixels for the box plus tail, and where things are.</summary>
 public sealed class BalloonBitmap
 {
-    internal BalloonBitmap(int width, int height, uint[] pixels, int boxTop, int tailTipX, int tailTipY, List<(RECT Rect, BalloonHit Hit)> hits, TextBoxGeometry? textBox)
+    internal BalloonBitmap(int width, int height, uint[] pixels, int boxTop, int tailTipX, int tailTipY, List<(PixelRect Rect, BalloonHit Hit)> hits, TextBoxGeometry? textBox)
     {
         Width = width;
         Height = height;
@@ -113,13 +110,13 @@ public sealed class BalloonBitmap
 
     public int TailTipY { get; }
 
-    internal List<(RECT Rect, BalloonHit Hit)> Hits { get; }
+    internal List<(PixelRect Rect, BalloonHit Hit)> Hits { get; }
 
     public BalloonHit HitTest(int x, int y)
     {
         foreach (var (rect, hit) in Hits)
         {
-            if (x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom)
+            if (rect.Contains(x, y))
             {
                 return hit;
             }
@@ -137,6 +134,11 @@ public sealed class BalloonBitmap
 /// </summary>
 public sealed class BalloonRenderer : IDisposable
 {
+    /// <summary>The balloon font: Tahoma at 13 pixels (8 pt at 96 DPI).</summary>
+    public const string FontFace = "Tahoma";
+
+    public const int FontPixelHeight = 13;
+
     public const int TailHeight = 15;
 
     /// <summary>Width of the tail opening in the border.</summary>
@@ -177,22 +179,18 @@ public sealed class BalloonRenderer : IDisposable
         [-1, 0], [0, 1], [1], [1, 2], [2, 3], [3], [3, 4], [4], [4, 5], [5, 6], [6], [6, 7], [7], [], [],
     ];
 
-    private readonly GdiCanvas _measure = new(1, 1);
-    private readonly HFONT _regularFont;
-    private readonly HFONT _boldFont;
+    private const bool Regular = false;
+    private const bool Bold = true;
 
-    public BalloonRenderer(string fontFace = "Tahoma", int fontHeight = -13)
+    private readonly ITextRenderer _text;
+
+    /// <summary>Creates a renderer that draws its text with <paramref name="text"/>, which it then owns.</summary>
+    public BalloonRenderer(ITextRenderer text)
     {
-        _regularFont = CreateFont(fontFace, fontHeight, 400);
-        _boldFont = CreateFont(fontFace, fontHeight, 700);
+        _text = text;
     }
 
-    public void Dispose()
-    {
-        _measure.Dispose();
-        PInvoke.DeleteObject(_regularFont);
-        PInvoke.DeleteObject(_boldFont);
-    }
+    public void Dispose() => _text.Dispose();
 
     /// <summary>Lays out the content and returns the box size (excluding the tail).</summary>
     public BalloonLayout Measure(BalloonContent content, BalloonState state)
@@ -210,14 +208,14 @@ public sealed class BalloonRenderer : IDisposable
             switch (block)
             {
                 case BalloonText text:
-                    placed.Lines = Wrap(text.Text, width - (2 * Padding), text.Bold ? _boldFont : _regularFont);
+                    placed.Lines = Wrap(text.Text, width - (2 * Padding), text.Bold ? Bold : Regular);
                     placed.Height = placed.Lines.Count * LineHeight;
                     break;
                 case BalloonIconHeading:
                     placed.Height = IconSize;
                     break;
                 case BalloonLabel label:
-                    placed.Lines = Wrap(label.Text, width - LabelIndent - LabelRightPadding, _regularFont);
+                    placed.Lines = Wrap(label.Text, width - LabelIndent - LabelRightPadding, Regular);
                     placed.Height = placed.Lines.Count * LineHeight;
                     break;
                 case BalloonSeeMore:
@@ -252,22 +250,20 @@ public sealed class BalloonRenderer : IDisposable
         var height = boxHeight + TailHeight;
         tailX = Math.Clamp(tailX, 9, width - 10 - TailOpening);
 
-        using var canvas = new GdiCanvas(width, height);
+        var canvas = new PixelBuffer(width, height);
         var inside = new bool[width * height];
         var pixels = canvas.Pixels;
-        pixels.Clear();
 
         PaintShape(pixels, inside, width, boxHeight, boxTop, tailSide, tailX);
 
-        var hits = new List<(RECT, BalloonHit)>();
+        var hits = new List<(PixelRect, BalloonHit)>();
         TextBoxGeometry? textBox = null;
         foreach (var placed in layout.Blocks)
         {
             textBox = PaintBlock(canvas, placed, layout.Width, boxTop, state, hits) ?? textBox;
         }
 
-        // GDI clears the alpha byte of every pixel it touches; the whole shape is opaque.
-        pixels = canvas.Pixels;
+        // The whole shape is opaque; anything painted outside it is dropped.
         var result = new uint[pixels.Length];
         for (var i = 0; i < pixels.Length; i++)
         {
@@ -301,7 +297,7 @@ public sealed class BalloonRenderer : IDisposable
         var previous = 0;
         for (var i = 1; i <= content.Length; i++)
         {
-            var extent = Extent(content[..i], _regularFont);
+            var extent = Extent(content[..i], Regular);
             if (target < (previous + extent + 1) / 2)
             {
                 return start + i - 1;
@@ -311,16 +307,6 @@ public sealed class BalloonRenderer : IDisposable
         }
 
         return start + content.Length;
-    }
-
-    private static unsafe HFONT CreateFont(string face, int height, int weight)
-    {
-        fixed (char* name = face)
-        {
-            return PInvoke.CreateFont(
-                height, 0, 0, 0, weight, 0, 0, 0, FONT_CHARSET.DEFAULT_CHARSET, 0, 0,
-                FONT_QUALITY.NONANTIALIASED_QUALITY, 0, name);
-        }
     }
 
     private static int DefaultSpacing(BalloonBlock? previous, BalloonBlock block) => (previous, block) switch
@@ -343,13 +329,13 @@ public sealed class BalloonRenderer : IDisposable
             switch (block)
             {
                 case BalloonText { Bold: true } heading when !hasBodyText:
-                    width = Math.Max(width, LongestLine(heading.Text, _boldFont) + (2 * Padding));
+                    width = Math.Max(width, LongestLine(heading.Text, Bold) + (2 * Padding));
                     break;
                 case BalloonIconHeading heading:
-                    width = Math.Max(width, Padding + IconSize + Padding + Extent(heading.Text, _boldFont) + Padding);
+                    width = Math.Max(width, Padding + IconSize + Padding + Extent(heading.Text, Bold) + Padding);
                     break;
                 case BalloonLabel label:
-                    width = Math.Max(width, LabelIndent + LongestLine(label.Text, _regularFont) + LabelRightPadding);
+                    width = Math.Max(width, LabelIndent + LongestLine(label.Text, Regular) + LabelRightPadding);
                     break;
                 case BalloonButtons buttons:
                     width = Math.Max(width, ButtonGroupWidth(buttons) + (2 * 6));
@@ -361,7 +347,7 @@ public sealed class BalloonRenderer : IDisposable
     }
 
     private int ButtonWidth(BalloonButtons buttons) =>
-        buttons.Buttons.Max(b => Math.Max(ButtonMinimumWidth, Extent(StripMnemonic(b.Text), _regularFont) + ButtonTextPadding));
+        buttons.Buttons.Max(b => Math.Max(ButtonMinimumWidth, Extent(StripMnemonic(b.Text), Regular) + ButtonTextPadding));
 
     private int ButtonGroupWidth(BalloonButtons buttons)
     {
@@ -369,15 +355,15 @@ public sealed class BalloonRenderer : IDisposable
         return (count * ButtonWidth(buttons)) + ((count - 1) * ButtonGap);
     }
 
-    private RECT[] LayoutButtons(BalloonButtons buttons, int width, int y)
+    private PixelRect[] LayoutButtons(BalloonButtons buttons, int width, int y)
     {
         var count = buttons.Buttons.Count;
         var buttonWidth = ButtonWidth(buttons);
-        var rects = new RECT[count];
+        var rects = new PixelRect[count];
         if (count == 1)
         {
             var left = (width - buttonWidth) / 2;
-            rects[0] = new RECT(left, y, left + buttonWidth, y + ButtonHeight);
+            rects[0] = new PixelRect(left, y, left + buttonWidth, y + ButtonHeight);
             return rects;
         }
 
@@ -387,7 +373,7 @@ public sealed class BalloonRenderer : IDisposable
         for (var i = 0; i < count; i++)
         {
             var left = start + (int)Math.Round(i * (span - buttonWidth) / (double)(count - 1), MidpointRounding.AwayFromZero);
-            rects[i] = new RECT(left, y, left + buttonWidth, y + ButtonHeight);
+            rects[i] = new PixelRect(left, y, left + buttonWidth, y + ButtonHeight);
         }
 
         return rects;
@@ -464,36 +450,36 @@ public sealed class BalloonRenderer : IDisposable
         inside[i] = true;
     }
 
-    private TextBoxGeometry? PaintBlock(GdiCanvas canvas, PlacedBlock placed, int width, int boxTop, BalloonState state, List<(RECT, BalloonHit)> hits)
+    private TextBoxGeometry? PaintBlock(PixelBuffer canvas, PlacedBlock placed, int width, int boxTop, BalloonState state, List<(PixelRect, BalloonHit)> hits)
     {
         var y = boxTop + placed.Y;
         TextBoxGeometry? textBox = null;
         switch (placed.Block)
         {
             case BalloonText text:
-                DrawLines(canvas, placed.Lines, Padding, y, text.Bold ? _boldFont : _regularFont, Border);
+                DrawLines(canvas, placed.Lines, Padding, y, text.Bold ? Bold : Regular, Border);
                 break;
 
             case BalloonIconHeading heading:
                 DrawSprite(canvas, BalloonSprites.Warning, Padding, y);
-                DrawLines(canvas, [heading.Text], Padding + IconSize + Padding, y + IconSize - LineHeight, _boldFont, Border);
+                DrawLines(canvas, [heading.Text], Padding + IconSize + Padding, y + IconSize - LineHeight, Bold, Border);
                 break;
 
             case BalloonLabel label:
                 DrawSprite(canvas, BalloonSprites.Bullet, 9, y + 4);
-                DrawLines(canvas, placed.Lines, LabelIndent, y, _regularFont, LabelColor);
-                hits.Add((new RECT(Padding, y, width - Padding, y + placed.Height), new BalloonHit(BalloonHitKind.Label, label.Id)));
+                DrawLines(canvas, placed.Lines, LabelIndent, y, Regular, LabelColor);
+                hits.Add((new PixelRect(Padding, y, width - Padding, y + placed.Height), new BalloonHit(BalloonHitKind.Label, label.Id)));
                 break;
 
             case BalloonSeeMore seeMore:
                 DrawSprite(canvas, BalloonSprites.SeeMoreArrow, 6, y + 5);
-                DrawLines(canvas, [seeMore.Text], LabelIndent, y, _regularFont, Border);
-                hits.Add((new RECT(Padding, y, width - Padding, y + placed.Height), new BalloonHit(BalloonHitKind.Label, seeMore.Id)));
+                DrawLines(canvas, [seeMore.Text], LabelIndent, y, Regular, Border);
+                hits.Add((new PixelRect(Padding, y, width - Padding, y + placed.Height), new BalloonHit(BalloonHitKind.Label, seeMore.Id)));
                 break;
 
             case BalloonTextBox:
                 textBox = PaintTextBox(canvas, width, y, state);
-                hits.Add((new RECT(Padding, y, width - Padding, y + TextBoxHeight), new BalloonHit(BalloonHitKind.TextBox, null)));
+                hits.Add((new PixelRect(Padding, y, width - Padding, y + TextBoxHeight), new BalloonHit(BalloonHitKind.TextBox, null)));
                 break;
 
             case BalloonSeparator:
@@ -503,9 +489,7 @@ public sealed class BalloonRenderer : IDisposable
             case BalloonButtons buttons:
                 for (var i = 0; i < buttons.Buttons.Count; i++)
                 {
-                    var rect = placed.ButtonRects[i];
-                    rect.top += boxTop;
-                    rect.bottom += boxTop;
+                    var rect = placed.ButtonRects[i] with { Top = placed.ButtonRects[i].Top + boxTop, Bottom = placed.ButtonRects[i].Bottom + boxTop };
                     PaintButton(canvas, rect, buttons.Buttons[i].Text, i == buttons.FocusedIndex);
                     hits.Add((rect, new BalloonHit(BalloonHitKind.Button, buttons.Buttons[i].Id)));
                 }
@@ -516,7 +500,7 @@ public sealed class BalloonRenderer : IDisposable
         return textBox;
     }
 
-    private TextBoxGeometry PaintTextBox(GdiCanvas canvas, int width, int y, BalloonState state)
+    private TextBoxGeometry PaintTextBox(PixelBuffer canvas, int width, int y, BalloonState state)
     {
         var boxWidth = width - (2 * Padding);
         FillRect(canvas, Padding, y, boxWidth, TextBoxHeight, TextBoxBorder);
@@ -534,24 +518,24 @@ public sealed class BalloonRenderer : IDisposable
         {
             var (start, text) = lines[i];
             var lineY = geometry.Y + ((i - firstLine) * LineHeight);
-            DrawLines(canvas, [text], geometry.X, lineY, _regularFont, Border);
+            DrawLines(canvas, [text], geometry.X, lineY, Regular, Border);
 
             // Selected part: highlight with white text on top, as the edit control does.
             var from = Math.Clamp(state.SelectionStart - start, 0, text.Length);
             var to = Math.Clamp(state.SelectionEnd - start, 0, text.Length);
             if (to > from && state.TextBoxFocused)
             {
-                var left = geometry.X + Extent(text[..from], _regularFont);
-                var right = geometry.X + Extent(text[..to], _regularFont);
+                var left = geometry.X + Extent(text[..from], Regular);
+                var right = geometry.X + Extent(text[..to], Regular);
                 FillRect(canvas, left, lineY, right - left, LineHeight, SelectionBackground);
-                DrawLines(canvas, [text[from..to]], left, lineY, _regularFont, 0xFFFFFFFF);
+                DrawLines(canvas, [text[from..to]], left, lineY, Regular, 0xFFFFFFFF);
             }
         }
 
         if (state.TextBoxFocused && state.CaretVisible && !state.HasSelection)
         {
             var (start, text) = lines[caretLine];
-            var caretX = geometry.X + Extent(text[..Math.Clamp(state.CaretIndex - start, 0, text.Length)], _regularFont);
+            var caretX = geometry.X + Extent(text[..Math.Clamp(state.CaretIndex - start, 0, text.Length)], Regular);
             var caretY = geometry.Y + ((caretLine - firstLine) * LineHeight);
             FillRect(canvas, Math.Min(caretX, Padding + boxWidth - 2), caretY, 1, LineHeight, Border);
         }
@@ -576,7 +560,7 @@ public sealed class BalloonRenderer : IDisposable
     /// <summary>Wraps the text box contents, keeping each line's offset in the text.</summary>
     private List<(int Start, string Text)> WrapWithOffsets(string text, int maxWidth)
     {
-        var lines = Wrap(text, maxWidth, _regularFont);
+        var lines = Wrap(text, maxWidth, Regular);
         if (string.Concat(lines) != text)
         {
             // Wrap only rewrites text containing line breaks; fall back to one line.
@@ -594,40 +578,33 @@ public sealed class BalloonRenderer : IDisposable
         return result;
     }
 
-    private void PaintButton(GdiCanvas canvas, RECT rect, string text, bool focused)
+    private void PaintButton(PixelBuffer canvas, PixelRect rect, string text, bool focused)
     {
-        var w = rect.right - rect.left;
-        var h = rect.bottom - rect.top;
-        FillRect(canvas, rect.left + 2, rect.top, w - 4, 1, ButtonBorder);
-        FillRect(canvas, rect.left + 2, rect.bottom - 1, w - 4, 1, ButtonBorder);
-        FillRect(canvas, rect.left, rect.top + 2, 1, h - 4, ButtonBorder);
-        FillRect(canvas, rect.right - 1, rect.top + 2, 1, h - 4, ButtonBorder);
-        FillRect(canvas, rect.left + 1, rect.top + 1, 1, 1, ButtonBorder);
-        FillRect(canvas, rect.right - 2, rect.top + 1, 1, 1, ButtonBorder);
-        FillRect(canvas, rect.left + 1, rect.bottom - 2, 1, 1, ButtonBorder);
-        FillRect(canvas, rect.right - 2, rect.bottom - 2, 1, 1, ButtonBorder);
+        var w = rect.Width;
+        var h = rect.Height;
+        FillRect(canvas, rect.Left + 2, rect.Top, w - 4, 1, ButtonBorder);
+        FillRect(canvas, rect.Left + 2, rect.Bottom - 1, w - 4, 1, ButtonBorder);
+        FillRect(canvas, rect.Left, rect.Top + 2, 1, h - 4, ButtonBorder);
+        FillRect(canvas, rect.Right - 1, rect.Top + 2, 1, h - 4, ButtonBorder);
+        FillRect(canvas, rect.Left + 1, rect.Top + 1, 1, 1, ButtonBorder);
+        FillRect(canvas, rect.Right - 2, rect.Top + 1, 1, 1, ButtonBorder);
+        FillRect(canvas, rect.Left + 1, rect.Bottom - 2, 1, 1, ButtonBorder);
+        FillRect(canvas, rect.Right - 2, rect.Bottom - 2, 1, 1, ButtonBorder);
 
-        var textRect = new RECT(rect.left, rect.top + 3, rect.right, rect.top + 3 + LineHeight);
-        PInvoke.SelectObject(canvas.Dc, _regularFont);
-        PInvoke.SetTextColor(canvas.Dc, default);
-        unsafe
-        {
-            fixed (char* chars = text)
-            {
-                PInvoke.DrawText(canvas.Dc, chars, text.Length, ref textRect, DRAW_TEXT_FORMAT.DT_SINGLELINE | DRAW_TEXT_FORMAT.DT_CENTER);
-            }
-        }
+        // Centred like DrawText's DT_CENTER, with the mnemonic underlined.
+        var textTop = rect.Top + 3;
+        var extent = Extent(StripMnemonic(text), Regular);
+        var textLeft = rect.Left + ((w - extent) / 2);
+        _text.DrawWithMnemonic(canvas, text, textLeft, textTop, Border);
 
         if (focused)
         {
-            var extent = Extent(StripMnemonic(text), _regularFont);
-            var left = rect.left + ((w - extent) / 2) - 2;
-            DrawFocusRect(canvas, left, textRect.top, extent + 4, LineHeight + 1);
+            DrawFocusRect(canvas, textLeft - 2, textTop, extent + 4, LineHeight + 1);
         }
     }
 
     /// <summary>Same dotted XOR pattern as GDI's DrawFocusRect, on the balloon background.</summary>
-    private static void DrawFocusRect(GdiCanvas canvas, int left, int top, int width, int height)
+    private static void DrawFocusRect(PixelBuffer canvas, int left, int top, int width, int height)
     {
         var pixels = canvas.Pixels;
         for (var y = top; y < top + height; y++)
@@ -643,17 +620,15 @@ public sealed class BalloonRenderer : IDisposable
         }
     }
 
-    private void DrawLines(GdiCanvas canvas, IReadOnlyList<string> lines, int x, int y, HFONT font, uint color)
+    private void DrawLines(PixelBuffer canvas, IReadOnlyList<string> lines, int x, int y, bool bold, uint color)
     {
-        PInvoke.SelectObject(canvas.Dc, font);
-        PInvoke.SetTextColor(canvas.Dc, NativeHelpers.Rgb(color & 0xFFFFFF));
         for (var i = 0; i < lines.Count; i++)
         {
-            PInvoke.TextOut(canvas.Dc, x, y + (i * LineHeight), lines[i], lines[i].Length);
+            _text.Draw(canvas, lines[i], x, y + (i * LineHeight), color, bold);
         }
     }
 
-    private static void DrawSprite(GdiCanvas canvas, Sprite sprite, int left, int top)
+    private static void DrawSprite(PixelBuffer canvas, Sprite sprite, int left, int top)
     {
         var pixels = canvas.Pixels;
         for (var y = 0; y < sprite.Height; y++)
@@ -671,7 +646,7 @@ public sealed class BalloonRenderer : IDisposable
         }
     }
 
-    private static void FillRect(GdiCanvas canvas, int left, int top, int width, int height, uint color)
+    private static void FillRect(PixelBuffer canvas, int left, int top, int width, int height, uint color)
     {
         var pixels = canvas.Pixels;
         for (var y = Math.Max(0, top); y < Math.Min(canvas.Height, top + height); y++)
@@ -683,23 +658,21 @@ public sealed class BalloonRenderer : IDisposable
         }
     }
 
-    private int Extent(string text, HFONT font)
+    private int Extent(string text, bool bold)
     {
         if (text.Length == 0)
         {
             return 0;
         }
 
-        PInvoke.SelectObject(_measure.Dc, font);
-        PInvoke.GetTextExtentPoint32W(_measure.Dc, text, text.Length, out var size);
-        return size.cx;
+        return _text.Measure(text, bold);
     }
 
-    private int LongestLine(string text, HFONT font) =>
-        text.Split('\n').Max(line => Extent(line.TrimEnd(), font));
+    private int LongestLine(string text, bool bold) =>
+        text.Split('\n').Max(line => Extent(line.TrimEnd(), bold));
 
     /// <summary>Greedy word wrap equivalent to DrawText's DT_WORDBREAK. Wrapped lines keep their trailing space.</summary>
-    private List<string> Wrap(string text, int maxWidth, HFONT font)
+    private List<string> Wrap(string text, int maxWidth, bool bold)
     {
         var lines = new List<string>();
         foreach (var paragraph in text.Replace("\r\n", "\n").Split('\n'))
@@ -708,7 +681,7 @@ public sealed class BalloonRenderer : IDisposable
             foreach (var word in paragraph.Split(' '))
             {
                 var candidate = line.Length == 0 ? word : line + " " + word;
-                if (line.Length > 0 && Extent(candidate, font) > maxWidth)
+                if (line.Length > 0 && Extent(candidate, bold) > maxWidth)
                 {
                     // Keep the breaking space: selection highlights include it.
                     lines.Add(line + " ");
@@ -720,10 +693,10 @@ public sealed class BalloonRenderer : IDisposable
                 }
 
                 // A single word wider than the line is broken by characters.
-                while (line.Length > 1 && Extent(line, font) > maxWidth)
+                while (line.Length > 1 && Extent(line, bold) > maxWidth)
                 {
                     var fit = line.Length - 1;
-                    while (fit > 1 && Extent(line[..fit], font) > maxWidth)
+                    while (fit > 1 && Extent(line[..fit], bold) > maxWidth)
                     {
                         fit--;
                     }
@@ -774,7 +747,7 @@ internal sealed class PlacedBlock(BalloonBlock block, int y)
 
     public IReadOnlyList<string> Lines { get; set; } = [];
 
-    public RECT[] ButtonRects { get; set; } = [];
+    public PixelRect[] ButtonRects { get; set; } = [];
 }
 
 /// <summary>Where the text box's text was painted, for mapping clicks to characters.</summary>

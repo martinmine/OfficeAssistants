@@ -1,3 +1,5 @@
+using OfficeAssistant.Core.Rendering;
+using OfficeAssistant.Core.Windows;
 using StbImageSharp;
 
 namespace AcsFormat.Tests;
@@ -23,6 +25,10 @@ internal static class TestFiles
     public static IEnumerable<string> AllAssistantFiles() =>
         Directory.EnumerateFiles(Path.Combine(Root.Value, "Assistants"))
             .Where(f => f.EndsWith(".acs", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".acg", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The balloon renderer with the text renderer the pixel tests compare.</summary>
+    public static BalloonRenderer CreateBalloonRenderer() =>
+        new(new GdiTextRenderer(BalloonRenderer.FontFace, BalloonRenderer.FontPixelHeight));
 
     /// <summary>Loads an image as 0x00RRGGBB values (alpha dropped).</summary>
     public static (int Width, int Height, uint[] Pixels) LoadRgb(string path)

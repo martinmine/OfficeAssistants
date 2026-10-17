@@ -1,24 +1,25 @@
-using OfficeAssistant.Core.Interop;
+using OfficeAssistant.Core.Animation;
+using OfficeAssistant.Core.Platform;
 using OfficeAssistant.Core.Rendering;
-using Windows.Win32;
-using Windows.Win32.UI.Input.KeyboardAndMouse;
 
-namespace OfficeAssistant.Core.Windows;
+namespace OfficeAssistant.Core.Interaction;
 
 /// <summary>
 /// The Office XP balloon, painted by <see cref="BalloonRenderer"/> and placed next to
 /// the character. Handles its own clicks and the Answer Wizard text box.
 /// </summary>
-public sealed unsafe class BalloonWindow : LayeredWindow
+public sealed class BalloonInteraction : IDisposable
 {
     // Measured from the screenshots: the tail opening starts 29 px into the character
     // frame and the box sits 6 px above the frame; the tail tip reaches 9 px into it.
     private const int TailOffsetInFrame = 29;
     private const int GapAboveFrame = 6;
-    private const int CaretTimerId = 1;
 
-    private readonly BalloonRenderer _renderer = new();
+    private readonly IPlatform _platform;
+    private readonly IFloatingSurface _surface;
+    private readonly BalloonRenderer _renderer;
     private readonly BalloonState _state = new();
+    private readonly UiTimer _caretTimer = new();
     private BalloonContent? _content;
     private string? _placeholder;
     private BalloonLayout? _layout;
@@ -26,12 +27,22 @@ public sealed unsafe class BalloonWindow : LayeredWindow
     private (int X, int Y, int Width, int Height) _anchor;
     private int _anchorScale = 1;
     private BalloonHit _pressed = BalloonHit.None;
-    private bool _trackingLeave;
     private bool _selecting;
 
-    public BalloonWindow()
-        : base(activatable: true)
+    public BalloonInteraction(IPlatform platform)
     {
+        _platform = platform;
+        _renderer = new BalloonRenderer(platform.CreateTextRenderer(BalloonRenderer.FontFace, BalloonRenderer.FontPixelHeight));
+        _surface = platform.CreateSurface(SurfaceKind.Balloon);
+        _surface.CursorProvider = CursorAtPointer;
+        _surface.Deactivated += (_, _) => SetTextBoxFocus(false); // The box loses focus and hides its selection.
+        _surface.PointerMoved += (_, _) => OnPointerMoved();
+        _surface.PointerPressed += (_, _) => OnPointerPressed();
+        _surface.DoubleClicked += (_, _) => OnDoubleClicked();
+        _surface.PointerReleased += (_, _) => OnPointerReleased();
+        _surface.CaptureLost += (_, _) => _selecting = false;
+        _surface.KeyDown += (_, input) => OnKeyDown(input);
+        _surface.CharacterTyped += (_, c) => OnChar(c);
     }
 
     /// <summary>A label (bulleted item or "See more...") was clicked.</summary>
@@ -49,6 +60,11 @@ public sealed unsafe class BalloonWindow : LayeredWindow
 
     public bool HasTextBox => _content?.Blocks.Any(b => b is BalloonTextBox) == true;
 
+    public bool IsVisible => _surface.IsVisible;
+
+    /// <summary>The window the balloon is drawn in.</summary>
+    public IFloatingSurface Surface => _surface;
+
     /// <summary>Shows content anchored to the character frame (screen pixels).</summary>
     public void ShowContent(BalloonContent content, (int X, int Y, int Width, int Height) frame, int scale, bool activate)
     {
@@ -62,10 +78,10 @@ public sealed unsafe class BalloonWindow : LayeredWindow
         _anchorScale = scale;
         _layout = _renderer.Measure(content, _state);
         Repaint();
-        Show(activate && HasTextBox);
+        _surface.Show(activate && HasTextBox);
         if (activate && HasTextBox)
         {
-            PInvoke.SetForegroundWindow(Hwnd);
+            _surface.Activate();
             _state.SelectAll();
             SetTextBoxFocus(true);
         }
@@ -76,7 +92,7 @@ public sealed unsafe class BalloonWindow : LayeredWindow
     {
         _anchor = frame;
         _anchorScale = scale;
-        if (_layout is not null && IsVisible)
+        if (_layout is not null && _surface.IsVisible)
         {
             Repaint();
         }
@@ -84,135 +100,86 @@ public sealed unsafe class BalloonWindow : LayeredWindow
 
     public void Close()
     {
-        PInvoke.KillTimer(Hwnd, CaretTimerId);
+        _caretTimer.Stop();
         if (_selecting)
         {
             _selecting = false;
-            PInvoke.ReleaseCapture();
+            _surface.ReleasePointer();
         }
 
         _content = null;
         _layout = null;
-        Hide();
+        _surface.Hide();
     }
 
-    protected override nint? OnMessage(uint message, nint wParam, nint lParam)
+    public void Dispose()
     {
-        switch (message)
+        _caretTimer.Dispose();
+        _renderer.Dispose();
+        _surface.Dispose();
+    }
+
+    private void OnPointerMoved()
+    {
+        if (_selecting)
         {
-            case PInvoke.WM_ACTIVATE:
-                if (NativeHelpers.LowWord((nuint)wParam) == 0)
-                {
-                    // Deactivated: the box loses focus and hides its selection.
-                    SetTextBoxFocus(false);
-                }
+            _state.Select(_state.AnchorIndex, TextIndexAtCursor());
+            Repaint();
+        }
+    }
 
-                return 0;
+    private void OnPointerPressed()
+    {
+        _pressed = HitTestCursor();
+        if (_pressed.Kind == BalloonHitKind.TextBox)
+        {
+            OnTextBoxMouseDown();
+        }
+    }
 
-            case PInvoke.WM_SETCURSOR:
-                UpdateCursor();
-                return 1;
+    private void OnDoubleClicked()
+    {
+        _pressed = HitTestCursor();
+        if (_pressed.Kind == BalloonHitKind.TextBox && _state.TextBoxFocused)
+        {
+            var (start, end) = TextEditing.WordAt(_state.TextBoxText, TextIndexAtCursor());
+            _state.Select(start, end);
+            Repaint();
+        }
+    }
 
-            case PInvoke.WM_MOUSEMOVE:
-                if (!_trackingLeave)
-                {
-                    var tme = new TRACKMOUSEEVENT
-                    {
-                        cbSize = (uint)sizeof(TRACKMOUSEEVENT),
-                        dwFlags = TRACKMOUSEEVENT_FLAGS.TME_LEAVE,
-                        hwndTrack = Hwnd,
-                    };
-                    _trackingLeave = PInvoke.TrackMouseEvent(ref tme);
-                }
-
-                if (_selecting)
-                {
-                    _state.Select(_state.AnchorIndex, TextIndexAtCursor());
-                    Repaint();
-                }
-
-                return 0;
-
-            case PInvoke.WM_MOUSELEAVE:
-                _trackingLeave = false;
-                return 0;
-
-            case PInvoke.WM_LBUTTONDOWN:
-                _pressed = HitTestCursor();
-                if (_pressed.Kind == BalloonHitKind.TextBox)
-                {
-                    OnTextBoxMouseDown();
-                }
-
-                return 0;
-
-            case PInvoke.WM_LBUTTONDBLCLK:
-                // The second click of a double-click arrives instead of a button-down.
-                _pressed = HitTestCursor();
-                if (_pressed.Kind == BalloonHitKind.TextBox && _state.TextBoxFocused)
-                {
-                    var (start, end) = TextEditing.WordAt(_state.TextBoxText, TextIndexAtCursor());
-                    _state.Select(start, end);
-                    Repaint();
-                }
-
-                return 0;
-
-            case PInvoke.WM_LBUTTONUP:
-            {
-                if (_selecting)
-                {
-                    _selecting = false;
-                    PInvoke.ReleaseCapture();
-                    return 0;
-                }
-
-                var hit = HitTestCursor();
-                var pressed = _pressed;
-                _pressed = BalloonHit.None;
-                if (hit != pressed || hit.Id is null)
-                {
-                    return 0;
-                }
-
-                if (hit.Kind == BalloonHitKind.Label)
-                {
-                    LabelClicked?.Invoke(this, hit.Id);
-                }
-                else if (hit.Kind == BalloonHitKind.Button)
-                {
-                    ButtonClicked?.Invoke(this, hit.Id);
-                }
-
-                return 0;
-            }
-
-            case PInvoke.WM_CAPTURECHANGED:
-                _selecting = false;
-                return 0;
-
-            case PInvoke.WM_TIMER when wParam == CaretTimerId:
-                _state.CaretVisible = !_state.CaretVisible;
-                Repaint();
-                return 0;
-
-            case PInvoke.WM_KEYDOWN:
-                OnKeyDown((VIRTUAL_KEY)wParam);
-                return 0;
-
-            case PInvoke.WM_CHAR:
-                OnChar((char)wParam);
-                return 0;
+    private void OnPointerReleased()
+    {
+        if (_selecting)
+        {
+            _selecting = false;
+            _surface.ReleasePointer();
+            return;
         }
 
-        return null;
+        var hit = HitTestCursor();
+        var pressed = _pressed;
+        _pressed = BalloonHit.None;
+        if (hit != pressed || hit.Id is null)
+        {
+            return;
+        }
+
+        if (hit.Kind == BalloonHitKind.Label)
+        {
+            LabelClicked?.Invoke(this, hit.Id);
+        }
+        else if (hit.Kind == BalloonHitKind.Button)
+        {
+            ButtonClicked?.Invoke(this, hit.Id);
+        }
     }
 
     private void OnTextBoxMouseDown()
     {
         if (!_state.TextBoxFocused)
         {
-            PInvoke.SetForegroundWindow(Hwnd);
+            _surface.Activate();
 
             // The question prompt is replaced as a whole, like in Office.
             if (_state.TextBoxText == _placeholder)
@@ -226,16 +193,16 @@ public sealed unsafe class BalloonWindow : LayeredWindow
         }
 
         var index = TextIndexAtCursor();
-        _state.Select(NativeHelpers.IsKeyDown(VIRTUAL_KEY.VK_SHIFT) ? _state.AnchorIndex : index, index);
+        _state.Select(_surface.Modifiers.HasFlag(KeyModifiers.Shift) ? _state.AnchorIndex : index, index);
         _state.CaretVisible = true;
         _selecting = true;
-        PInvoke.SetCapture(Hwnd);
+        _surface.CapturePointer();
         Repaint();
     }
 
-    private void OnKeyDown(VIRTUAL_KEY key)
+    private void OnKeyDown(KeyInput input)
     {
-        if (key == VIRTUAL_KEY.VK_ESCAPE)
+        if (input.Key == Key.Escape)
         {
             Dismissed?.Invoke(this, EventArgs.Empty);
             return;
@@ -246,33 +213,34 @@ public sealed unsafe class BalloonWindow : LayeredWindow
             return;
         }
 
-        var shift = NativeHelpers.IsKeyDown(VIRTUAL_KEY.VK_SHIFT);
-        var control = NativeHelpers.IsKeyDown(VIRTUAL_KEY.VK_CONTROL);
+        var shift = input.Modifiers.HasFlag(KeyModifiers.Shift);
+        var word = input.Modifiers.HasFlag(KeyModifiers.Word);
+        var command = input.Modifiers.HasFlag(KeyModifiers.Command);
         var text = _state.TextBoxText;
         var caret = _state.CaretIndex;
 
-        switch (key)
+        switch (input.Key)
         {
             // Without Shift, arrows first collapse an existing selection to its edge.
-            case VIRTUAL_KEY.VK_LEFT when !shift && !control && _state.HasSelection:
+            case Key.Left when !shift && !word && _state.HasSelection:
                 MoveCaret(_state.SelectionStart, shift);
                 break;
-            case VIRTUAL_KEY.VK_RIGHT when !shift && !control && _state.HasSelection:
+            case Key.Right when !shift && !word && _state.HasSelection:
                 MoveCaret(_state.SelectionEnd, shift);
                 break;
-            case VIRTUAL_KEY.VK_LEFT:
-                MoveCaret(control ? TextEditing.PreviousWordStart(text, caret) : Math.Max(0, caret - 1), shift);
+            case Key.Left:
+                MoveCaret(word ? TextEditing.PreviousWordStart(text, caret) : Math.Max(0, caret - 1), shift);
                 break;
-            case VIRTUAL_KEY.VK_RIGHT:
-                MoveCaret(control ? TextEditing.NextWordStart(text, caret) : Math.Min(text.Length, caret + 1), shift);
+            case Key.Right:
+                MoveCaret(word ? TextEditing.NextWordStart(text, caret) : Math.Min(text.Length, caret + 1), shift);
                 break;
-            case VIRTUAL_KEY.VK_HOME:
+            case Key.Home:
                 MoveCaret(0, shift);
                 break;
-            case VIRTUAL_KEY.VK_END:
+            case Key.End:
                 MoveCaret(text.Length, shift);
                 break;
-            case VIRTUAL_KEY.VK_DELETE:
+            case Key.Delete:
                 if (!_state.HasSelection)
                 {
                     _state.Select(caret, Math.Min(text.Length, caret + 1));
@@ -280,18 +248,18 @@ public sealed unsafe class BalloonWindow : LayeredWindow
 
                 _state.ReplaceSelection(string.Empty);
                 break;
-            case VIRTUAL_KEY.VK_A when control:
+            case Key.A when command:
                 _state.SelectAll();
                 break;
-            case VIRTUAL_KEY.VK_C when control && _state.HasSelection:
-                Clipboard.SetText(Hwnd, _state.SelectedText);
+            case Key.C when command && _state.HasSelection:
+                _platform.Clipboard.SetText(_state.SelectedText);
                 return;
-            case VIRTUAL_KEY.VK_X when control && _state.HasSelection:
-                Clipboard.SetText(Hwnd, _state.SelectedText);
+            case Key.X when command && _state.HasSelection:
+                _platform.Clipboard.SetText(_state.SelectedText);
                 _state.ReplaceSelection(string.Empty);
                 break;
-            case VIRTUAL_KEY.VK_V when control:
-                var paste = Clipboard.GetText(Hwnd);
+            case Key.V when command:
+                var paste = _platform.Clipboard.GetText();
                 if (string.IsNullOrEmpty(paste))
                 {
                     return;
@@ -361,15 +329,23 @@ public sealed unsafe class BalloonWindow : LayeredWindow
         _state.CaretVisible = focused;
         if (focused)
         {
-            PInvoke.SetTimer(Hwnd, CaretTimerId, PInvoke.GetCaretBlinkTime(), null);
+            ScheduleCaretBlink();
         }
         else
         {
-            PInvoke.KillTimer(Hwnd, CaretTimerId);
+            _caretTimer.Stop();
         }
 
         Repaint();
     }
+
+    private void ScheduleCaretBlink() =>
+        _caretTimer.Start(_platform.CaretBlinkMilliseconds, () =>
+        {
+            _state.CaretVisible = !_state.CaretVisible;
+            Repaint();
+            ScheduleCaretBlink();
+        });
 
     private int TextIndexAtCursor()
     {
@@ -378,8 +354,8 @@ public sealed unsafe class BalloonWindow : LayeredWindow
             return 0;
         }
 
-        var (x, y) = CursorPosition();
-        return _renderer.TextIndexFromPoint(_bitmap, (x - X) / Scale, (y - Y) / Scale);
+        var (x, y) = _surface.CursorPosition;
+        return _renderer.TextIndexFromPoint(_bitmap, (x - _surface.X) / _surface.Scale, (y - _surface.Y) / _surface.Scale);
     }
 
     private void Repaint()
@@ -391,27 +367,27 @@ public sealed unsafe class BalloonWindow : LayeredWindow
 
         var scale = _anchorScale;
         var (frameX, frameY, frameWidth, frameHeight) = _anchor;
-        var work = GetWorkArea(frameX + (frameWidth / 2), frameY + (frameHeight / 2));
+        var work = _platform.Displays.WorkAreaAt(frameX + (frameWidth / 2), frameY + (frameHeight / 2));
         var boxWidth = _layout.Width * scale;
         var totalHeight = (_layout.Height + BalloonRenderer.TailHeight) * scale;
         var tailScreenX = frameX + (TailOffsetInFrame * scale);
 
         // Prefer above the character; flip below when there is no room.
-        var tailSide = frameY - (GapAboveFrame * scale) - (_layout.Height * scale) >= work.top
+        var tailSide = frameY - (GapAboveFrame * scale) - (_layout.Height * scale) >= work.Top
             ? BalloonTailSide.Bottom
             : BalloonTailSide.Top;
 
         var left = tailScreenX + ((BalloonRenderer.TailOpening * scale) / 2) - (boxWidth / 2);
-        left = Math.Clamp(left, work.left, Math.Max(work.left, work.right - boxWidth));
+        left = Math.Clamp(left, work.Left, Math.Max(work.Left, work.Right - boxWidth));
         var tailX = (tailScreenX - left) / scale;
 
         _bitmap = _renderer.Render(_layout, _state, tailSide, tailX);
         var top = tailSide == BalloonTailSide.Bottom
             ? frameY - (GapAboveFrame * scale) - (_layout.Height * scale)
             : frameY + frameHeight + (GapAboveFrame * scale) - (BalloonRenderer.TailHeight * scale);
-        top = Math.Clamp(top, work.top, Math.Max(work.top, work.bottom - totalHeight));
+        top = Math.Clamp(top, work.Top, Math.Max(work.Top, work.Bottom - totalHeight));
 
-        Present(_bitmap.Pixels, _bitmap.Width, _bitmap.Height, left, top, scale);
+        _surface.Present(_bitmap.Pixels, _bitmap.Width, _bitmap.Height, left, top, scale);
     }
 
     private BalloonHit HitTestCursor()
@@ -421,18 +397,14 @@ public sealed unsafe class BalloonWindow : LayeredWindow
             return BalloonHit.None;
         }
 
-        var (x, y) = CursorPosition();
-        return _bitmap.HitTest((x - X) / Scale, (y - Y) / Scale);
+        var (x, y) = _surface.CursorPosition;
+        return _bitmap.HitTest((x - _surface.X) / _surface.Scale, (y - _surface.Y) / _surface.Scale);
     }
 
-    private void UpdateCursor()
+    private CursorKind CursorAtPointer() => HitTestCursor().Kind switch
     {
-        var hit = HitTestCursor();
-        SetCursor(hit.Kind switch
-        {
-            BalloonHitKind.Label => PInvoke.IDC_HAND,
-            BalloonHitKind.TextBox => PInvoke.IDC_IBEAM,
-            _ => PInvoke.IDC_ARROW,
-        });
-    }
+        BalloonHitKind.Label => CursorKind.Hand,
+        BalloonHitKind.TextBox => CursorKind.IBeam,
+        _ => CursorKind.Arrow,
+    };
 }

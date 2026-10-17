@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using OfficeAssistant.Core;
 using OfficeAssistant.Core.Chat;
+using OfficeAssistant.Core.Windows;
 
 namespace OfficeAssistant;
 
@@ -43,8 +44,9 @@ public partial class App : Application
     protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
         DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-        Settings = new SettingsStore();
-        Assistant = new AssistantController(Settings);
+        var platform = new WindowsPlatform();
+        Settings = new SettingsStore(secrets: platform.Secrets);
+        Assistant = new AssistantController(platform, Settings);
         Window = new MainWindow();
         Window.Closed += (_, _) => Assistant.Dispose();
 

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using OfficeAssistant.Core.Chat;
 using OfficeAssistant.Core.Rendering;
+using OfficeAssistant.Core.Windows;
 
 namespace AcsFormat.Tests;
 
@@ -102,14 +103,14 @@ public class ChatTests
         var path = Path.Combine(Path.GetTempPath(), $"oa-settings-{Guid.NewGuid():N}.json");
         try
         {
-            var store = new SettingsStore(path) { ApiKey = "sk-ant-test" };
+            var store = new SettingsStore(path, new DpapiSecretStore()) { ApiKey = "sk-ant-test" };
             store.Settings.Model = "claude-sonnet-5-5";
             store.Settings.GetProfile("CLIPPIT").Instructions = "Be brief.";
             store.Save();
 
             Assert.DoesNotContain("sk-ant-test", File.ReadAllText(path));
 
-            var loaded = new SettingsStore(path);
+            var loaded = new SettingsStore(path, new DpapiSecretStore());
             Assert.Equal("sk-ant-test", loaded.ApiKey);
             Assert.Equal("claude-sonnet-5-5", loaded.Settings.Model);
             Assert.Equal("Be brief.", loaded.Settings.GetProfile("clippit").Instructions);
@@ -139,7 +140,7 @@ public class ChatTests
     [WindowsFact]
     public void ChatBalloonsLayOut()
     {
-        using var renderer = new BalloonRenderer();
+        using var renderer = TestFiles.CreateBalloonRenderer();
         var input = new Dictionary<string, JsonElement> { ["path"] = JsonSerializer.SerializeToElement(new string('x', 200)) };
         BalloonContent[] balloons =
         [

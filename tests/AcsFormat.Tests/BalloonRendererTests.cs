@@ -44,7 +44,7 @@ public class BalloonRendererTests
     [WindowsFact]
     public void HitTestingFindsLabelsAndButtons()
     {
-        using var renderer = new BalloonRenderer();
+        using var renderer = TestFiles.CreateBalloonRenderer();
         var state = new BalloonState();
         var layout = renderer.Measure(BalloonScenarios.SaveChanges(), state);
         var bitmap = renderer.Render(layout, state, BalloonTailSide.Bottom, 122);
@@ -56,7 +56,7 @@ public class BalloonRendererTests
 
     private static void AssertMatches(string screenshot, BalloonContent content, BalloonState state, int tailX, int left, int top, int width, int height)
     {
-        using var renderer = new BalloonRenderer();
+        using var renderer = TestFiles.CreateBalloonRenderer();
         var layout = renderer.Measure(content, state);
         Assert.Equal((width, height), (layout.Width, layout.Height));
 

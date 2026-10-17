@@ -1,22 +1,24 @@
+using OfficeAssistant.Core.Interaction;
+using OfficeAssistant.Core.Platform;
 using OfficeAssistant.Core.Rendering;
-using OfficeAssistant.Core.Windows;
 
 namespace OfficeAssistant.Core;
 
 /// <summary>Keeps the balloon next to the character and only shows it while the character is shown.</summary>
 internal sealed class BalloonCoordinator : IDisposable
 {
-    private readonly BalloonWindow _window = new();
+    private readonly BalloonInteraction _window;
     private readonly CharacterPresenter _character;
 
-    public BalloonCoordinator(CharacterPresenter character)
+    public BalloonCoordinator(IPlatform platform, CharacterPresenter character)
     {
+        _window = new BalloonInteraction(platform);
         _character = character;
         _character.BoundsChanged += (_, _) => _window.UpdateAnchor(_character.FrameBounds, _character.Scale);
     }
 
-    /// <summary>The balloon's window, for its button, label and dismiss events.</summary>
-    public BalloonWindow Window => _window;
+    /// <summary>The balloon, for its button, label and dismiss events.</summary>
+    public BalloonInteraction Window => _window;
 
     public bool IsVisible => _window.IsVisible;
 

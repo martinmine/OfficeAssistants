@@ -22,7 +22,6 @@ WM_LBUTTONUP
 WM_LBUTTONDBLCLK
 WM_RBUTTONUP
 WM_CAPTURECHANGED
-WM_TIMER
 WM_KEYDOWN
 WM_CHAR
 MA_NOACTIVATE
@@ -35,8 +34,6 @@ ReleaseCapture
 GetCursorPos
 TrackMouseEvent
 GetKeyState
-SetTimer
-KillTimer
 GetCaretBlinkTime
 LoadCursor
 SetCursor

@@ -1,10 +1,11 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using OfficeAssistant.Core.Rendering;
+using OfficeAssistant.Core.Interop;
+using OfficeAssistant.Core.Platform;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Gdi;
-using Windows.Win32.UI.HiDpi;
+using Windows.Win32.UI.Input.KeyboardAndMouse;
 using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace OfficeAssistant.Core.Windows;
@@ -13,16 +14,19 @@ namespace OfficeAssistant.Core.Windows;
 /// A borderless top-most popup whose content is a per-pixel-alpha bitmap pushed with
 /// UpdateLayeredWindow. Bitmaps are shown 1:1 in physical pixels (optionally enlarged
 /// by an integer factor with nearest-neighbour sampling) so nothing is ever filtered.
-/// Must be used on a thread with a message loop (the WinUI UI thread works).
+/// A layered window ignores clicks on fully transparent pixels by itself. Must be used on
+/// a thread with a message loop (the WinUI UI thread works).
 /// </summary>
-public abstract unsafe class LayeredWindow : IDisposable
+public sealed unsafe class Win32Surface : IFloatingSurface
 {
     private const string ClassName = "OfficeAssistant.LayeredWindow";
 
-    private static readonly Dictionary<nint, LayeredWindow> Windows = [];
+    private static readonly Dictionary<nint, Win32Surface> Windows = [];
     private static bool _classRegistered;
 
+    private readonly bool _activatable;
     private bool _visible;
+    private bool _trackingLeave;
 
     // The DIB that Present draws into, kept while the window size stays the same.
     private HDC _memoryDc;
@@ -32,11 +36,12 @@ public abstract unsafe class LayeredWindow : IDisposable
     private int _bitmapWidth;
     private int _bitmapHeight;
 
-    protected LayeredWindow(bool activatable)
+    public Win32Surface(SurfaceKind kind)
     {
         RegisterClass();
+        _activatable = kind == SurfaceKind.Balloon;
         var exStyle = WINDOW_EX_STYLE.WS_EX_LAYERED | WINDOW_EX_STYLE.WS_EX_TOPMOST | WINDOW_EX_STYLE.WS_EX_TOOLWINDOW;
-        if (!activatable)
+        if (!_activatable)
         {
             exStyle |= WINDOW_EX_STYLE.WS_EX_NOACTIVATE;
         }
@@ -59,24 +64,55 @@ public abstract unsafe class LayeredWindow : IDisposable
         Windows[Handle] = this;
     }
 
+    public event EventHandler? PointerPressed;
+
+    public event EventHandler? PointerMoved;
+
+    public event EventHandler? PointerReleased;
+
+    public event EventHandler? DoubleClicked;
+
+    public event EventHandler? SecondaryClicked;
+
+    public event EventHandler? CaptureLost;
+
+    public event EventHandler? Deactivated;
+
+    public event EventHandler<KeyInput>? KeyDown;
+
+    public event EventHandler<char>? CharacterTyped;
+
     public nint Handle { get; private set; }
 
-    /// <summary>Screen position of the window's top-left corner, in physical pixels.</summary>
     public int X { get; private set; }
 
     public int Y { get; private set; }
 
-    /// <summary>Size on screen (bitmap size times <see cref="Scale"/>).</summary>
     public int Width { get; private set; }
 
     public int Height { get; private set; }
 
-    /// <summary>Integer enlargement factor applied to presented bitmaps.</summary>
     public int Scale { get; private set; } = 1;
 
     public bool IsVisible => _visible;
 
-    private protected HWND Hwnd => (HWND)Handle;
+    public (int X, int Y) CursorPosition
+    {
+        get
+        {
+            PInvoke.GetCursorPos(out var point);
+            return (point.X, point.Y);
+        }
+    }
+
+    /// <summary>Ctrl stands for both <see cref="KeyModifiers.Command"/> and <see cref="KeyModifiers.Word"/>.</summary>
+    public KeyModifiers Modifiers =>
+        (NativeHelpers.IsKeyDown(VIRTUAL_KEY.VK_SHIFT) ? KeyModifiers.Shift : KeyModifiers.None)
+        | (NativeHelpers.IsKeyDown(VIRTUAL_KEY.VK_CONTROL) ? KeyModifiers.Command | KeyModifiers.Word : KeyModifiers.None);
+
+    public Func<CursorKind>? CursorProvider { get; set; }
+
+    private HWND Hwnd => (HWND)Handle;
 
     public void Dispose()
     {
@@ -88,8 +124,6 @@ public abstract unsafe class LayeredWindow : IDisposable
         }
 
         FreeBitmap();
-
-        GC.SuppressFinalize(this);
     }
 
     public void Show(bool activate = false)
@@ -116,6 +150,13 @@ public abstract unsafe class LayeredWindow : IDisposable
         PInvoke.SetWindowPos(Hwnd, default, x, y, 0, 0, SET_WINDOW_POS_FLAGS.SWP_NOSIZE | SET_WINDOW_POS_FLAGS.SWP_NOZORDER | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE);
     }
 
+    public void Activate() => PInvoke.SetForegroundWindow(Hwnd);
+
+    public void CapturePointer() => PInvoke.SetCapture(Hwnd);
+
+    // Sends WM_CAPTURECHANGED right away, so CaptureLost is raised before this returns.
+    public void ReleasePointer() => PInvoke.ReleaseCapture();
+
     /// <summary>Shows a premultiplied 0xAARRGGBB bitmap at (<paramref name="x"/>, <paramref name="y"/>).</summary>
     public void Present(ReadOnlySpan<uint> pixels, int width, int height, int x, int y, int scale)
     {
@@ -141,23 +182,27 @@ public abstract unsafe class LayeredWindow : IDisposable
             Hwnd, default, &position, &size, _memoryDc, &origin, default, &blend, UPDATE_LAYERED_WINDOW_FLAGS.ULW_ALPHA);
     }
 
-    /// <summary>Work area of the monitor nearest to a point, in physical pixels.</summary>
-    internal static RECT GetWorkArea(int x, int y)
+    public int ShowMenu(int x, int y, IReadOnlyList<MenuItem> items)
     {
-        var monitor = PInvoke.MonitorFromPoint(new System.Drawing.Point(x, y), MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
-        var info = new MONITORINFO { cbSize = (uint)sizeof(MONITORINFO) };
-        PInvoke.GetMonitorInfo(monitor, ref info);
-        return info.rcWork;
-    }
+        using var menu = PInvoke.CreatePopupMenu_SafeHandle();
+        foreach (var (id, text, enabled) in items)
+        {
+            if (text is null)
+            {
+                PInvoke.AppendMenu(menu, MENU_ITEM_FLAGS.MF_SEPARATOR, 0, null);
+            }
+            else
+            {
+                PInvoke.AppendMenu(menu, MENU_ITEM_FLAGS.MF_STRING | (enabled ? 0 : MENU_ITEM_FLAGS.MF_GRAYED), (nuint)id, text);
+            }
+        }
 
-    /// <summary>Effective DPI of the monitor nearest to a point (96 at 100% scaling).</summary>
-    internal static uint GetDpiAt(int x, int y)
-    {
-        var monitor = PInvoke.MonitorFromPoint(new System.Drawing.Point(x, y), MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
-        return OperatingSystem.IsWindowsVersionAtLeast(10)
-            && PInvoke.GetDpiForMonitor(monitor, MONITOR_DPI_TYPE.MDT_EFFECTIVE_DPI, out var dpiX, out _).Succeeded
-            ? dpiX
-            : 96;
+        // The menu needs a foreground owner to dismiss properly.
+        PInvoke.SetForegroundWindow(Hwnd);
+
+        // With TPM_RETURNCMD the "BOOL" result is the chosen command id.
+        return PInvoke.TrackPopupMenuEx(
+            menu, (uint)(TRACK_POPUP_MENU_FLAGS.TPM_RETURNCMD | TRACK_POPUP_MENU_FLAGS.TPM_RIGHTBUTTON), x, y, Hwnd, null);
     }
 
     internal static void ScaleNearest(ReadOnlySpan<uint> source, int width, int height, Span<uint> target, int scale)
@@ -184,13 +229,98 @@ public abstract unsafe class LayeredWindow : IDisposable
         }
     }
 
-    /// <summary>Handles a window message; return null to fall through to DefWindowProc.</summary>
-    protected virtual nint? OnMessage(uint message, nint wParam, nint lParam) => null;
-
-    protected static (int X, int Y) CursorPosition()
+    private static Key ToKey(VIRTUAL_KEY key) => key switch
     {
-        PInvoke.GetCursorPos(out var point);
-        return (point.X, point.Y);
+        VIRTUAL_KEY.VK_ESCAPE => Key.Escape,
+        VIRTUAL_KEY.VK_LEFT => Key.Left,
+        VIRTUAL_KEY.VK_RIGHT => Key.Right,
+        VIRTUAL_KEY.VK_HOME => Key.Home,
+        VIRTUAL_KEY.VK_END => Key.End,
+        VIRTUAL_KEY.VK_DELETE => Key.Delete,
+        VIRTUAL_KEY.VK_A => Key.A,
+        VIRTUAL_KEY.VK_C => Key.C,
+        VIRTUAL_KEY.VK_V => Key.V,
+        VIRTUAL_KEY.VK_X => Key.X,
+        _ => Key.Other,
+    };
+
+    private static PCWSTR ToCursorId(CursorKind cursor) => cursor switch
+    {
+        CursorKind.Hand => PInvoke.IDC_HAND,
+        CursorKind.IBeam => PInvoke.IDC_IBEAM,
+        _ => PInvoke.IDC_ARROW,
+    };
+
+    /// <summary>Handles a window message; returns null to fall through to DefWindowProc.</summary>
+    private nint? OnMessage(uint message, nint wParam, nint lParam)
+    {
+        switch (message)
+        {
+            case PInvoke.WM_MOUSEACTIVATE when !_activatable:
+                return (nint)PInvoke.MA_NOACTIVATE;
+
+            case PInvoke.WM_ACTIVATE when _activatable:
+                if (NativeHelpers.LowWord((nuint)wParam) == 0)
+                {
+                    Deactivated?.Invoke(this, EventArgs.Empty);
+                }
+
+                return 0;
+
+            case PInvoke.WM_SETCURSOR when CursorProvider is { } provider:
+                PInvoke.SetCursor(PInvoke.LoadCursor(default, ToCursorId(provider())));
+                return 1;
+
+            case PInvoke.WM_MOUSEMOVE:
+                if (!_trackingLeave)
+                {
+                    var tme = new TRACKMOUSEEVENT
+                    {
+                        cbSize = (uint)sizeof(TRACKMOUSEEVENT),
+                        dwFlags = TRACKMOUSEEVENT_FLAGS.TME_LEAVE,
+                        hwndTrack = Hwnd,
+                    };
+                    _trackingLeave = PInvoke.TrackMouseEvent(ref tme);
+                }
+
+                PointerMoved?.Invoke(this, EventArgs.Empty);
+                return 0;
+
+            case PInvoke.WM_MOUSELEAVE:
+                _trackingLeave = false;
+                return 0;
+
+            case PInvoke.WM_LBUTTONDOWN:
+                PointerPressed?.Invoke(this, EventArgs.Empty);
+                return 0;
+
+            case PInvoke.WM_LBUTTONDBLCLK:
+                // The second click of a double-click arrives instead of a button-down.
+                DoubleClicked?.Invoke(this, EventArgs.Empty);
+                return 0;
+
+            case PInvoke.WM_LBUTTONUP:
+                PointerReleased?.Invoke(this, EventArgs.Empty);
+                return 0;
+
+            case PInvoke.WM_RBUTTONUP:
+                SecondaryClicked?.Invoke(this, EventArgs.Empty);
+                return 0;
+
+            case PInvoke.WM_CAPTURECHANGED:
+                CaptureLost?.Invoke(this, EventArgs.Empty);
+                return 0;
+
+            case PInvoke.WM_KEYDOWN:
+                KeyDown?.Invoke(this, new KeyInput(ToKey((VIRTUAL_KEY)wParam), Modifiers));
+                return 0;
+
+            case PInvoke.WM_CHAR:
+                CharacterTyped?.Invoke(this, (char)wParam);
+                return 0;
+        }
+
+        return null;
     }
 
     /// <summary>Makes sure the memory DC holds a DIB of this size, creating it only when the size changed.</summary>
@@ -223,9 +353,6 @@ public abstract unsafe class LayeredWindow : IDisposable
         _bitmap = default;
         _bits = null;
     }
-
-    private protected static void SetCursor(PCWSTR cursorId) =>
-        PInvoke.SetCursor(PInvoke.LoadCursor(default, cursorId));
 
     private static void RegisterClass()
     {

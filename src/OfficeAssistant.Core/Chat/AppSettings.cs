@@ -1,7 +1,6 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using OfficeAssistant.Core.Platform;
 
 namespace OfficeAssistant.Core.Chat;
 
@@ -15,7 +14,7 @@ public sealed class AppSettings
     /// <summary>Pixel size (1 to 4) the user picked, or null to follow the display's scaling.</summary>
     public int? PixelSize { get; set; }
 
-    /// <summary>The API key encrypted for the current Windows user (DPAPI), base64.</summary>
+    /// <summary>The API key as protected by the platform's <see cref="ISecretStore"/> (encrypted with DPAPI on Windows, a Keychain reference on macOS).</summary>
     public string? ProtectedApiKey { get; set; }
 
     /// <summary>Profiles keyed by assistant file name, e.g. CLIPPIT.</summary>
@@ -85,10 +84,13 @@ internal sealed partial class SettingsJsonContext : JsonSerializerContext
 /// <summary>Loads and saves <see cref="AppSettings"/> as JSON in the user's local app data.</summary>
 public sealed class SettingsStore
 {
-    private static readonly byte[] Entropy = "OfficeAssistant.ApiKey"u8.ToArray();
+    private readonly ISecretStore? _secrets;
 
-    public SettingsStore(string? path = null)
+    /// <param name="path">The settings file; null for the default in local app data.</param>
+    /// <param name="secrets">Protects the API key. Without it no key can be stored.</param>
+    public SettingsStore(string? path = null, ISecretStore? secrets = null)
     {
+        _secrets = secrets;
         Path = path ?? System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OfficeAssistant", "settings.json");
         Settings = Load(Path);
@@ -109,27 +111,28 @@ public sealed class SettingsStore
     {
         get
         {
-            if (string.IsNullOrEmpty(Settings.ProtectedApiKey))
-            {
-                return null;
-            }
-
-            try
-            {
-                var bytes = ProtectedData.Unprotect(Convert.FromBase64String(Settings.ProtectedApiKey), Entropy, DataProtectionScope.CurrentUser);
-                return Encoding.UTF8.GetString(bytes);
-            }
-            catch (Exception e) when (e is CryptographicException or FormatException)
-            {
-                return null;
-            }
+            return string.IsNullOrEmpty(Settings.ProtectedApiKey) ? null : _secrets?.Unprotect(Settings.ProtectedApiKey);
         }
 
         set
         {
-            Settings.ProtectedApiKey = string.IsNullOrWhiteSpace(value)
-                ? null
-                : Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(value.Trim()), Entropy, DataProtectionScope.CurrentUser));
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                if (!string.IsNullOrEmpty(Settings.ProtectedApiKey))
+                {
+                    _secrets?.Remove(Settings.ProtectedApiKey);
+                }
+
+                Settings.ProtectedApiKey = null;
+                return;
+            }
+
+            if (_secrets is null)
+            {
+                throw new InvalidOperationException("This settings store has no secret store to protect the API key with.");
+            }
+
+            Settings.ProtectedApiKey = _secrets.Protect(value.Trim());
         }
     }
 
