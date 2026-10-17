@@ -1,0 +1,6 @@
+<Project>
+  <!-- Lets the Windows-targeted libraries and tests build (and the portable tests run) on macOS. -->
+  <PropertyGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+</Project>

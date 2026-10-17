@@ -1,6 +1,4 @@
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
+using StbImageSharp;
 
 namespace AcsFormat.Tests;
 
@@ -29,28 +27,15 @@ internal static class TestFiles
     /// <summary>Loads an image as 0x00RRGGBB values (alpha dropped).</summary>
     public static (int Width, int Height, uint[] Pixels) LoadRgb(string path)
     {
-        using var bitmap = new Bitmap(path);
-        var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
-        var data = bitmap.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-        try
+        using var stream = File.OpenRead(path);
+        var image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlue);
+        var pixels = new uint[image.Width * image.Height];
+        for (var i = 0; i < pixels.Length; i++)
         {
-            var pixels = new uint[bitmap.Width * bitmap.Height];
-            for (var y = 0; y < bitmap.Height; y++)
-            {
-                var row = new int[bitmap.Width];
-                Marshal.Copy(data.Scan0 + (y * data.Stride), row, 0, bitmap.Width);
-                for (var x = 0; x < bitmap.Width; x++)
-                {
-                    pixels[(y * bitmap.Width) + x] = (uint)row[x] & 0x00FFFFFF;
-                }
-            }
+            pixels[i] = ((uint)image.Data[i * 3] << 16) | ((uint)image.Data[(i * 3) + 1] << 8) | image.Data[(i * 3) + 2];
+        }
 
-            return (bitmap.Width, bitmap.Height, pixels);
-        }
-        finally
-        {
-            bitmap.UnlockBits(data);
-        }
+        return (image.Width, image.Height, pixels);
     }
 
     /// <summary>

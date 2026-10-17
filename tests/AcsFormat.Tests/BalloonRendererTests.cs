@@ -9,14 +9,14 @@ namespace AcsFormat.Tests;
 /// </summary>
 public class BalloonRendererTests
 {
-    [Fact]
+    [WindowsFact]
     public void AnswerWizardMatchesScreenshot()
     {
         var state = new BalloonState { TextBoxText = BalloonScenarios.QuestionPlaceholder };
         AssertMatches("what would you like to do.png", BalloonScenarios.AnswerWizard(), state, tailX: 91, left: 15, top: 7, width: 185, height: 114);
     }
 
-    [Fact]
+    [WindowsFact]
     public void AutoCompleteTipMatchesScreenshot()
     {
         var content = BalloonScenarios.TipWithAnswerWizard("Word can complete things that you frequently type. Just press enter to accept the completion.");
@@ -25,13 +25,13 @@ public class BalloonRendererTests
         AssertMatches("Screenshot 2026-10-15 204610.png", content, state, tailX: 90, left: 4, top: 7, width: 184, height: 197);
     }
 
-    [Fact]
+    [WindowsFact]
     public void SaveChangesAlertMatchesScreenshot()
     {
         AssertMatches("Screenshot 2026-10-15 204312.png", BalloonScenarios.SaveChanges(), new BalloonState(), tailX: 122, left: 17, top: 9, width: 216, height: 122);
     }
 
-    [Fact]
+    [WindowsFact]
     public void SearchResultsMatchScreenshot()
     {
         var topics = HelpTopics.Search("Print");
@@ -41,7 +41,7 @@ public class BalloonRendererTests
         AssertMatches("Screenshot 2026-10-15 204134.png", BalloonScenarios.SearchResults(page, hasMore: topics.Count > 5), state, tailX: 106, left: 25, top: 33, width: 200, height: 258);
     }
 
-    [Fact]
+    [WindowsFact]
     public void HitTestingFindsLabelsAndButtons()
     {
         using var renderer = new BalloonRenderer();

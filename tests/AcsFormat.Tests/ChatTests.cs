@@ -96,7 +96,7 @@ public class ChatTests
         Assert.Throws<JsonException>(() => SettingsStore.ParseMcpServers("""{ "broken": { "args": [] } }"""));
     }
 
-    [Fact]
+    [WindowsFact]
     public void SettingsRoundTripWithEncryptedKey()
     {
         var path = Path.Combine(Path.GetTempPath(), $"oa-settings-{Guid.NewGuid():N}.json");
@@ -136,7 +136,7 @@ public class ChatTests
         }
     }
 
-    [Fact]
+    [WindowsFact]
     public void ChatBalloonsLayOut()
     {
         using var renderer = new BalloonRenderer();

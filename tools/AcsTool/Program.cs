@@ -1,8 +1,6 @@
-﻿using System.Drawing;
-using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
-using AcsFormat;
+﻿using AcsFormat;
 using OfficeAssistant.Core.Rendering;
+using StbImageWriteSharp;
 
 // Developer tool: inspect ACS/ACG files, export their frames and sounds, and render
 // balloons to PNG for pixel comparisons against the reference screenshots.
@@ -146,20 +144,16 @@ static void RenderBalloon(string scenario, string output, int tailX, bool tailOn
 /// <summary>Saves premultiplied 0xAARRGGBB pixels with 1-bit alpha (so also straight ARGB) as a PNG.</summary>
 static void SavePng(string path, int width, int height, ReadOnlySpan<uint> pixels)
 {
-    using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
-    var data = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-    try
+    var rgba = new byte[width * height * 4];
+    for (var i = 0; i < width * height; i++)
     {
-        var source = MemoryMarshal.Cast<uint, int>(pixels);
-        for (var y = 0; y < height; y++)
-        {
-            Marshal.Copy(source.Slice(y * width, width).ToArray(), 0, data.Scan0 + (y * data.Stride), width);
-        }
-    }
-    finally
-    {
-        bitmap.UnlockBits(data);
+        var p = pixels[i];
+        rgba[(i * 4) + 0] = (byte)(p >> 16);
+        rgba[(i * 4) + 1] = (byte)(p >> 8);
+        rgba[(i * 4) + 2] = (byte)p;
+        rgba[(i * 4) + 3] = (byte)(p >> 24);
     }
 
-    bitmap.Save(path, ImageFormat.Png);
+    using var stream = File.Create(path);
+    new ImageWriter().WritePng(rgba, width, height, ColorComponents.RedGreenBlueAlpha, stream);
 }

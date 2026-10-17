@@ -40,7 +40,7 @@ public class TextBoxEditingTests
         Assert.False(state.HasSelection);
     }
 
-    [Fact]
+    [WindowsFact]
     public void ClicksMapToCharacterPositions()
     {
         using var renderer = new BalloonRenderer();
@@ -55,7 +55,7 @@ public class TextBoxEditingTests
         Assert.InRange(middle, 6, 12);
     }
 
-    [Fact]
+    [WindowsFact]
     public void PartialSelectionIsHighlightedOnlyWhileFocused()
     {
         using var renderer = new BalloonRenderer();
