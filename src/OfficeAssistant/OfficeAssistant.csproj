@@ -85,4 +85,35 @@
     <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
     <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
   </PropertyGroup>
+
+  <!--
+    Trimming. Checked with a Release publish (asking a question, an MCP tool call, saving
+    settings, switching assistants):
+    - The Anthropic SDK serializes its models with reflection-based System.Text.Json.
+      PublishTrimmed turns that off by default (in Release builds too), which breaks the
+      first request, so it is switched back on. The whole Anthropic assembly is also kept
+      untrimmed, so response shapes the smoke test did not cover keep their members.
+    - Warnings left on purpose:
+      IL2104 Anthropic: about 1900 IL2026-style warnings for the reflection-based JSON
+        above. Safe because the assembly is rooted and reflection is enabled.
+      IL2104 WinRT.Runtime and Microsoft.Windows.SDK.NET: IL2081 in the CsWinRT
+        run-time marshaling fallback for generic collections and async operations. It
+        comes from the Windows SDK projection, not from this app. The fallback is only
+        used for types without generated marshaling code; AllowUnsafeBlocks below makes
+        CsWinRT generate that code for the collections this app binds.
+    - Our own assemblies, ModelContextProtocol and Markdig produce no warnings.
+  -->
+  <PropertyGroup>
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+
+    <!--
+      CsWinRT generates the marshaling code for collections bound to XAML (ItemsSource)
+      only when unsafe code is allowed (CsWinRT1030). Without it the trimmed app crashes
+      on start, because the reflection fallback that would build it at run time is trimmed.
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <TrimmerRootAssembly Include="Anthropic" />
+  </ItemGroup>
 </Project>
