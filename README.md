@@ -11,7 +11,9 @@ read your files, search your notes, check your calendar, or whatever the servers
 It's a WinUI 3 app written in C#. Characters, animations, sounds and localized strings are
 read straight from the original Microsoft Agent files, and the assistant and its balloons
 are drawn pixel for pixel: the tests compare the output with the reference screenshots in
-`Screenshots/` and require zero differing pixels.
+`Screenshots/` and require zero differing pixels. While you type a question, a real Windows
+text box sits over the balloon's box, so IME input, the emoji panel, spell checking and
+screen readers work; when you click away the balloon draws the text itself again.
 
 ## Requirements
 
@@ -143,7 +145,7 @@ runtime with **Add assistant files (.acs, .acg)...**.
 dotnet test tests\AcsFormat.Tests
 ```
 
-The tests parse every file in `Assistants/`, check the localized strings, text editing and
+The tests parse every file in `Assistants/`, check the localized strings, sounds and
 animation playback, and render Clippit and four balloons for pixel comparisons with the
 screenshots.
 
@@ -171,7 +173,7 @@ warning icon from the screenshots into `src/OfficeAssistant.Core/Rendering/Ballo
 |------|----------|
 | `src/AcsFormat` | Platform-neutral parser for `.acs`/`.acg` files: localized strings, states, animations (frames, branches, exit branches, mouth overlays), images with the Agent decompressor, and WAVE sounds. |
 | `src/OfficeAssistant.Core` | Windows runtime: layered Win32 windows for the character and balloon, the Office XP balloon renderer, animation and sound playback, idling, and the conversation with Claude and MCP servers (`Chat/`). |
-| `src/OfficeAssistant` | The WinUI 3 app. |
+| `src/OfficeAssistant` | The WinUI 3 app, including the text box shown over the balloon while typing (`Balloon/`). |
 | `tools/AcsTool` | Developer CLI described above. |
 | `tests/AcsFormat.Tests` | Unit and pixel-comparison tests. |
 | `Assistants/` | Original assistant files. |

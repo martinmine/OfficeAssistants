@@ -54,6 +54,35 @@ public class BalloonRendererTests
         Assert.Equal(BalloonHit.None, bitmap.HitTest(100, 50));
     }
 
+    [Fact]
+    public void PartialSelectionIsHighlightedOnlyWhileFocused()
+    {
+        using var renderer = new BalloonRenderer();
+        var state = new BalloonState { TextBoxText = "Print merged documents", TextBoxFocused = true };
+        state.Select(6, 12);
+        var layout = renderer.Measure(BalloonScenarios.AnswerWizard(), state);
+
+        Assert.Contains(0xFF316AC5u, renderer.Render(layout, state, BalloonTailSide.Bottom, 90).Pixels);
+
+        state.TextBoxFocused = false;
+        Assert.DoesNotContain(0xFF316AC5u, renderer.Render(layout, state, BalloonTailSide.Bottom, 90).Pixels);
+    }
+
+    [Fact]
+    public void TextBoxBoundsCoverTheAnswerWizardBox()
+    {
+        using var renderer = new BalloonRenderer();
+        var state = new BalloonState();
+        var layout = renderer.Measure(BalloonScenarios.AnswerWizard(), state);
+        var bitmap = renderer.Render(layout, state, BalloonTailSide.Bottom, 90);
+
+        var box = Assert.NotNull(bitmap.TextBox);
+        Assert.Equal(40, box.Height);
+        Assert.Equal(bitmap.Width - 10, box.Width);
+        Assert.Equal(new BalloonHit(BalloonHitKind.TextBox, null), bitmap.HitTest(box.X + 1, box.Y + 1));
+        Assert.Equal(0xFFECE9D8u, bitmap.Pixels[(box.Y * bitmap.Width) + box.X]);
+    }
+
     private static void AssertMatches(string screenshot, BalloonContent content, BalloonState state, int tailX, int left, int top, int width, int height)
     {
         using var renderer = new BalloonRenderer();

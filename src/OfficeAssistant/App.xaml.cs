@@ -44,7 +44,7 @@ public partial class App : Application
     {
         DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
         Settings = new SettingsStore();
-        Assistant = new AssistantController(Settings);
+        Assistant = new AssistantController(Settings, new Balloon.BalloonTextInput());
         Window = new MainWindow();
         Window.Closed += (_, _) => Assistant.Dispose();
 
