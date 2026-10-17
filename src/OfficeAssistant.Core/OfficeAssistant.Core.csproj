@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <PackageReference Include="Anthropic" />
+    <PackageReference Include="Markdig" />
     <PackageReference Include="Microsoft.Windows.CsWin32" PrivateAssets="all" />
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />

@@ -28,6 +28,22 @@ public class ChatTests
             text);
     }
 
+    [Theory]
+    [InlineData("1. First\n2. Second\n   - nested\n   - more\n3. Third", "1. First\n2. Second\n   • nested\n   • more\n3. Third")]
+    [InlineData("- outer\n  - inner\n    - innermost", "• outer\n  • inner\n    • innermost")]
+    [InlineData("Use `a*b*c` or `__init__` here.", "Use a*b*c or __init__ here.")]
+    [InlineData(@"Not \*emphasis\* and 2 \_ 3", "Not *emphasis* and 2 _ 3")]
+    [InlineData("See [array[0]](https://example.com/a_(b)).", "See array[0] (https://example.com/a_(b)).")]
+    [InlineData("[https://example.com](https://example.com)", "https://example.com")]
+    [InlineData("![a diagram](chart.png)", "a diagram")]
+    [InlineData("> Quoted:\n> - one\n> - two", "Quoted:\n• one\n• two")]
+    [InlineData("Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy.", "Press Ctrl+C to copy.")]
+    [InlineData("Title\n=====\n\nBody text.", "Title\n\nBody text.")]
+    [InlineData("Intro\n\n---\n\n| Key | Action |\n|-----|:------:|\n| F1 | Help |", "Intro\n\nKey  Action\nF1  Help")]
+    [InlineData("One\n\n\n\nTwo", "One\n\nTwo")]
+    public void MarkdownEdgeCasesBecomePlainText(string markdown, string expected) =>
+        Assert.Equal(expected, AnswerFormatter.ToPlainText(markdown));
+
     [Fact]
     public void ShortAnswersFitOnOnePage()
     {

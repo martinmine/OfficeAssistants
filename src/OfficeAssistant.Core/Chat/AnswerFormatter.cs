@@ -1,5 +1,8 @@
 using System.Text;
-using System.Text.RegularExpressions;
+using Markdig;
+using Markdig.Extensions.Tables;
+using Markdig.Syntax;
+using Markdig.Syntax.Inlines;
 
 namespace OfficeAssistant.Core.Chat;
 
@@ -7,50 +10,23 @@ namespace OfficeAssistant.Core.Chat;
 /// Prepares Claude's answers for the balloon, which only draws plain wrapped text:
 /// strips Markdown and splits long answers into pages for "See more...".
 /// </summary>
-public static partial class AnswerFormatter
+public static class AnswerFormatter
 {
     public const int DefaultPageLength = 520;
 
-    /// <summary>Removes Markdown markup, keeping the text (and bullets as "•").</summary>
+    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().UsePipeTables().Build();
+
+    /// <summary>
+    /// Removes Markdown markup, keeping the text: bullets become "•", numbered items keep
+    /// their numbers and links become "text (url)". Blocks are separated by a blank line
+    /// only where the source had one.
+    /// </summary>
     public static string ToPlainText(string markdown)
     {
-        var lines = new List<string>();
-        var inCode = false;
-        foreach (var raw in markdown.Replace("\r\n", "\n").Split('\n'))
-        {
-            var line = raw.TrimEnd();
-            if (line.TrimStart().StartsWith("```", StringComparison.Ordinal))
-            {
-                inCode = !inCode;
-                continue;
-            }
-
-            if (!inCode)
-            {
-                if (HorizontalRule().IsMatch(line) || TableSeparator().IsMatch(line))
-                {
-                    continue;
-                }
-
-                line = Heading().Replace(line, string.Empty);
-                line = Quote().Replace(line, string.Empty);
-                line = Bullet().Replace(line, "$1• ");
-                line = Image().Replace(line, "$1");
-                line = Link().Replace(line, m => m.Groups[1].Value == m.Groups[2].Value ? m.Groups[1].Value : $"{m.Groups[1].Value} ({m.Groups[2].Value})");
-                line = Emphasis().Replace(line, "$2");
-                line = UnderscoreEmphasis().Replace(line, "$2");
-                line = InlineCode().Replace(line, "$1");
-                if (line.TrimStart().StartsWith('|'))
-                {
-                    line = string.Join("  ", line.Trim().Trim('|').Split('|').Select(c => c.Trim()));
-                }
-            }
-
-            lines.Add(line);
-        }
-
-        var text = string.Join("\n", lines);
-        return MultipleBlankLines().Replace(text, "\n\n").Trim();
+        markdown = markdown.ReplaceLineEndings("\n");
+        var writer = new PlainTextWriter(markdown);
+        writer.WriteContainer(Markdown.Parse(markdown, Pipeline), string.Empty);
+        return writer.ToString();
     }
 
     /// <summary>Splits text into pages of about <paramref name="pageLength"/> characters, at paragraph or sentence ends.</summary>
@@ -109,37 +85,184 @@ public static partial class AnswerFormatter
         }
     }
 
-    [GeneratedRegex(@"^\s{0,3}#{1,6}\s+")]
-    private static partial Regex Heading();
+    /// <summary>Walks a parsed Markdown document and collects the balloon's plain-text lines.</summary>
+    private sealed class PlainTextWriter(string source)
+    {
+        private readonly List<string> _lines = [];
+        private readonly int[] _lineStarts = LineStarts(source);
+        private int _lastSourceLine = -1;
+        private string? _pendingPrefix;
 
-    [GeneratedRegex(@"^\s{0,3}>\s?")]
-    private static partial Regex Quote();
+        public void WriteContainer(ContainerBlock container, string indent)
+        {
+            foreach (var block in container)
+            {
+                switch (block)
+                {
+                    case ListBlock list:
+                        foreach (var item in list.OfType<ListItemBlock>())
+                        {
+                            var marker = list.IsOrdered ? $"{item.Order}{list.OrderedDelimiter} " : "• ";
+                            _pendingPrefix = indent + marker;
+                            WriteContainer(item, indent + new string(' ', marker.Length));
+                            _pendingPrefix = null;
+                        }
 
-    [GeneratedRegex(@"^(\s*)[-*+]\s+")]
-    private static partial Regex Bullet();
+                        break;
 
-    [GeneratedRegex(@"^\s{0,3}([-*_])(\s*\1){2,}\s*$")]
-    private static partial Regex HorizontalRule();
+                    case Table table:
+                        WriteLines(table, indent, table.OfType<TableRow>().Select(row =>
+                            string.Join("  ", row.OfType<TableCell>().Select(CellText))));
+                        break;
 
-    [GeneratedRegex(@"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")]
-    private static partial Regex TableSeparator();
+                    case ContainerBlock child:
+                        // Block quotes and anything else that only groups blocks.
+                        WriteContainer(child, indent);
+                        break;
 
-    [GeneratedRegex(@"!\[([^\]]*)\]\([^)]*\)")]
-    private static partial Regex Image();
+                    case LeafBlock leaf:
+                        WriteLines(leaf, indent, LeafLines(leaf));
+                        break;
+                }
+            }
+        }
 
-    [GeneratedRegex(@"\[([^\]]+)\]\(([^)\s]+)\)")]
-    private static partial Regex Link();
+        public override string ToString() => string.Join("\n", _lines).Trim();
 
-    [GeneratedRegex(@"(\*\*|\*|~~)(?=\S)(.+?)(?<=\S)\1")]
-    private static partial Regex Emphasis();
+        private static IEnumerable<string> LeafLines(LeafBlock leaf) => leaf switch
+        {
+            // Fenced and indented code keep their lines; the fences are not part of them.
+            CodeBlock code => code.Lines.Lines.Take(code.Lines.Count).Select(line => line.ToString()),
+            HtmlBlock html => html.Lines.Lines.Take(html.Lines.Count).Select(line => StripTags(line.ToString())),
+            ThematicBreakBlock or LinkReferenceDefinition => [],
+            { Inline: { } inline } => InlineText(inline).Split('\n'),
+            _ => [],
+        };
 
-    // Only at word boundaries, so snake_case names survive.
-    [GeneratedRegex(@"(?<!\w)(__|_)(?=\S)(.+?)(?<=\S)\1(?!\w)")]
-    private static partial Regex UnderscoreEmphasis();
+        private static string CellText(TableCell cell) =>
+            string.Join(" ", cell.OfType<LeafBlock>().Select(leaf => leaf.Inline is { } inline ? InlineText(inline).Trim() : string.Empty));
 
-    [GeneratedRegex(@"`([^`]+)`")]
-    private static partial Regex InlineCode();
+        private static string InlineText(ContainerInline container)
+        {
+            var text = new StringBuilder();
+            AppendChildren(text, container);
+            return text.ToString();
+        }
 
-    [GeneratedRegex(@"\n{3,}")]
-    private static partial Regex MultipleBlankLines();
+        private static void AppendInline(StringBuilder text, Inline inline)
+        {
+            switch (inline)
+            {
+                case LiteralInline literal:
+                    text.Append(literal.Content);
+                    break;
+                case CodeInline code:
+                    text.Append(code.Content);
+                    break;
+                case AutolinkInline autolink:
+                    text.Append(autolink.Url);
+                    break;
+                case LinkInline { IsImage: true } image:
+                    AppendChildren(text, image);
+                    break;
+                case LinkInline link:
+                    var label = InlineText(link);
+                    var url = link.Url ?? string.Empty;
+                    text.Append(url.Length == 0 || label == url ? label : $"{label} ({url})");
+                    break;
+                case LineBreakInline:
+                    text.Append('\n');
+                    break;
+                case HtmlEntityInline entity:
+                    text.Append(entity.Transcoded);
+                    break;
+                case HtmlInline:
+                    break;
+                case ContainerInline container:
+                    // Emphasis and other wrappers: keep only their text.
+                    AppendChildren(text, container);
+                    break;
+            }
+        }
+
+        private static void AppendChildren(StringBuilder text, ContainerInline container)
+        {
+            foreach (var child in container)
+            {
+                AppendInline(text, child);
+            }
+        }
+
+        private static string StripTags(string html)
+        {
+            var text = new StringBuilder(html.Length);
+            var inTag = false;
+            foreach (var c in html)
+            {
+                if (c == '<')
+                {
+                    inTag = true;
+                }
+                else if (c == '>' && inTag)
+                {
+                    inTag = false;
+                }
+                else if (!inTag)
+                {
+                    text.Append(c);
+                }
+            }
+
+            return text.ToString();
+        }
+
+        private static int[] LineStarts(string text)
+        {
+            var starts = new List<int> { 0 };
+            for (var i = 0; i < text.Length; i++)
+            {
+                if (text[i] == '\n')
+                {
+                    starts.Add(i + 1);
+                }
+            }
+
+            return [.. starts];
+        }
+
+        private void WriteLines(Block block, string indent, IEnumerable<string> lines)
+        {
+            // A blank line in the source between two blocks becomes one blank line here.
+            if (_lines.Count > 0 && block.Line > _lastSourceLine + 1)
+            {
+                AddLine(string.Empty);
+            }
+
+            foreach (var line in lines)
+            {
+                var prefix = _pendingPrefix ?? indent;
+                _pendingPrefix = null;
+                AddLine(line.Length == 0 ? string.Empty : prefix + line);
+            }
+
+            _lastSourceLine = Math.Max(_lastSourceLine, SourceLine(block.Span.End));
+        }
+
+        private void AddLine(string line)
+        {
+            line = line.TrimEnd();
+            if (line.Length == 0 && (_lines.Count == 0 || _lines[^1].Length == 0))
+            {
+                return;
+            }
+
+            _lines.Add(line);
+        }
+
+        private int SourceLine(int position)
+        {
+            var index = Array.BinarySearch(_lineStarts, Math.Max(0, position));
+            return index >= 0 ? index : ~index - 1;
+        }
+    }
 }
