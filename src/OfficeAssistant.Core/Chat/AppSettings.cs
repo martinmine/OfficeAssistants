@@ -12,6 +12,9 @@ public sealed class AppSettings
 
     public string Model { get; set; } = DefaultModel;
 
+    /// <summary>Pixel size (1 to 4) the user picked, or null to follow the display's scaling.</summary>
+    public int? PixelSize { get; set; }
+
     /// <summary>The API key encrypted for the current Windows user (DPAPI), base64.</summary>
     public string? ProtectedApiKey { get; set; }
 

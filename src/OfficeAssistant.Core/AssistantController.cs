@@ -38,6 +38,7 @@ public sealed class AssistantController : IDisposable, IChatHost
     private bool _hiding;
     private DateTime _idleSince = DateTime.UtcNow;
     private int _scale = 1;
+    private int? _preferredScale;
     private bool _soundsEnabled = true;
 
     private AssistantChat? _chat;
@@ -53,10 +54,11 @@ public sealed class AssistantController : IDisposable, IChatHost
     public AssistantController(SettingsStore settings)
     {
         _settings = settings;
+        _preferredScale = ClampScale(settings.Settings.PixelSize);
         _window.Clicked += (_, _) => OnCharacterClicked();
         _window.DoubleClicked += (_, _) => Animate();
         _window.ContextMenuRequested += (_, point) => ShowContextMenu(point.X, point.Y);
-        _window.Moved += (_, _) => _balloon.UpdateAnchor(FrameBounds, _scale);
+        _window.Moved += (_, _) => OnMoved();
         _balloon.ButtonClicked += (_, id) => OnBalloonButton(id);
         _balloon.LabelClicked += (_, id) => OnBalloonLabel(id);
         _balloon.Dismissed += (_, _) => OnBalloonDismissed();
@@ -107,26 +109,30 @@ public sealed class AssistantController : IDisposable, IChatHost
         }
     }
 
-    /// <summary>Integer pixel enlargement (1 = identical to the original).</summary>
+    /// <summary>
+    /// Integer pixel enlargement in use (1 = identical to the original). Setting it is an
+    /// explicit choice, the same as setting <see cref="PreferredScale"/>.
+    /// </summary>
     public int Scale
     {
         get => _scale;
+        set => PreferredScale = value;
+    }
+
+    /// <summary>Default pixel size for a monitor DPI: round(DPI / 96), from 1x to 4x.</summary>
+    public static int ScaleForDpi(uint dpi) => Math.Clamp((int)Math.Round(dpi / 96.0, MidpointRounding.AwayFromZero), 1, 4);
+
+    /// <summary>
+    /// The pixel size the user picked, or null to follow the display: round(DPI / 96), so
+    /// 1x at 100% scaling and 2x at 200%. Integer steps keep the art sharp.
+    /// </summary>
+    public int? PreferredScale
+    {
+        get => _preferredScale;
         set
         {
-            value = Math.Clamp(value, 1, 4);
-            if (value == _scale)
-            {
-                return;
-            }
-
-            // Keep the character's feet where they are.
-            var oldBottom = _window.Y + _window.Height;
-            _scale = value;
-            if (_lastFrame is not null && Character is not null)
-            {
-                Present(_lastFrame, _window.X, oldBottom - (Character.Height * value));
-                _balloon.UpdateAnchor(FrameBounds, _scale);
-            }
+            _preferredScale = ClampScale(value);
+            ApplyScale(_preferredScale ?? ScaleForDisplay());
         }
     }
 
@@ -174,6 +180,7 @@ public sealed class AssistantController : IDisposable, IChatHost
         if (!_positioned)
         {
             var work = LayeredWindow.GetWorkArea(0, 0);
+            _scale = _preferredScale ?? ScaleForDpi(LayeredWindow.GetDpiAt(work.right - 1, work.bottom - 1));
             var x = work.right - (Character.Width * _scale) - 40;
             var y = work.bottom - (Character.Height * _scale) - 40;
             _window.MoveTo(x, y);
@@ -395,6 +402,44 @@ public sealed class AssistantController : IDisposable, IChatHost
         }
 
         PlayInternal(animations[_random.Next(animations.Count)], null);
+    }
+
+    private static int? ClampScale(int? scale) => scale is { } value ? Math.Clamp(value, 1, 4) : null;
+
+
+    /// <summary>
+    /// Scale for the monitor under the character's bottom-left corner. That corner stays put
+    /// when the scale changes, so the choice can't flip back and forth at a monitor edge.
+    /// </summary>
+    private int ScaleForDisplay() =>
+        ScaleForDpi(LayeredWindow.GetDpiAt(_window.X, _window.Y + Math.Max(0, _window.Height - 1)));
+
+    private void ApplyScale(int value)
+    {
+        if (value == _scale)
+        {
+            return;
+        }
+
+        // Keep the character's feet where they are.
+        var oldBottom = _window.Y + _window.Height;
+        _scale = value;
+        if (_lastFrame is not null && Character is not null)
+        {
+            Present(_lastFrame, _window.X, oldBottom - (Character.Height * value));
+            _balloon.UpdateAnchor(FrameBounds, _scale);
+        }
+    }
+
+    private void OnMoved()
+    {
+        // Dragged to a monitor with a different scaling: follow it unless the user picked a size.
+        if (_preferredScale is null && _positioned)
+        {
+            ApplyScale(ScaleForDisplay());
+        }
+
+        _balloon.UpdateAnchor(FrameBounds, _scale);
     }
 
     private void Present(uint[] frame, int x, int y)

@@ -4,6 +4,7 @@ using OfficeAssistant.Core.Rendering;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Gdi;
+using Windows.Win32.UI.HiDpi;
 using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace OfficeAssistant.Core.Windows;
@@ -151,6 +152,16 @@ public abstract unsafe class LayeredWindow : IDisposable
         var info = new MONITORINFO { cbSize = (uint)sizeof(MONITORINFO) };
         PInvoke.GetMonitorInfo(monitor, ref info);
         return info.rcWork;
+    }
+
+    /// <summary>Effective DPI of the monitor nearest to a point (96 at 100% scaling).</summary>
+    internal static uint GetDpiAt(int x, int y)
+    {
+        var monitor = PInvoke.MonitorFromPoint(new System.Drawing.Point(x, y), MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
+        return OperatingSystem.IsWindowsVersionAtLeast(10)
+            && PInvoke.GetDpiForMonitor(monitor, MONITOR_DPI_TYPE.MDT_EFFECTIVE_DPI, out var dpiX, out _).Succeeded
+            ? dpiX
+            : 96;
     }
 
     internal static void ScaleNearest(ReadOnlySpan<uint> source, int width, int height, Span<uint> target, int scale)

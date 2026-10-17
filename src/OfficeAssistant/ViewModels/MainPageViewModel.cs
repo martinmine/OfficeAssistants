@@ -43,6 +43,7 @@ public partial class MainPageViewModel : ObservableObject
         _assistant.AnimationStarted += (_, name) => CurrentAnimation = name;
         _assistant.Mcp.Changed += (_, _) => RefreshMcpServers();
         Model = _settings.Settings.Model;
+        ScaleIndex = _settings.Settings.PixelSize ?? 0;
         RefreshApiKeyStatus();
     }
 
@@ -104,7 +105,7 @@ public partial class MainPageViewModel : ObservableObject
 
     public string PreviewMuteLabel => PreviewMuted ? "Unmute preview" : "Mute preview";
 
-    /// <summary>0 = original pixels, 1 = 2x, 2 = 3x.</summary>
+    /// <summary>0 = automatic (from the display scaling), 1 = original pixels, 2 = 2x, 3 = 3x.</summary>
     [ObservableProperty]
     public partial int ScaleIndex { get; set; }
 
@@ -381,7 +382,16 @@ public partial class MainPageViewModel : ObservableObject
         }
     }
 
-    partial void OnScaleIndexChanged(int value) => _assistant.Scale = value + 1;
+    partial void OnScaleIndexChanged(int value)
+    {
+        int? pixelSize = value > 0 ? value : null;
+        _assistant.PreferredScale = pixelSize;
+        if (pixelSize != _settings.Settings.PixelSize)
+        {
+            _settings.Settings.PixelSize = pixelSize;
+            _settings.Save();
+        }
+    }
 
     partial void OnLanguageIndexChanged(int value)
     {

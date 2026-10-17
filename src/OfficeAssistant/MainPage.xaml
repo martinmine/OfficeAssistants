@@ -123,6 +123,7 @@
                                 MinWidth="160"
                                 Header="Pixel size"
                                 SelectedIndex="{x:Bind ViewModel.ScaleIndex, Mode=TwoWay}">
+                                <x:String>Automatic</x:String>
                                 <x:String>1x (original)</x:String>
                                 <x:String>2x</x:String>
                                 <x:String>3x</x:String>
