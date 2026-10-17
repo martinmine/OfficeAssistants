@@ -1,6 +1,7 @@
 using OfficeAssistant.Core;
 using OfficeAssistant.Core.Chat;
 using OfficeAssistant.Mac.Platform;
+using OfficeAssistant.Mac.Settings;
 using OfficeAssistant.Presentation;
 
 namespace OfficeAssistant.Mac;
@@ -14,6 +15,7 @@ public sealed class AppDelegate : NSApplicationDelegate
 {
     private AssistantController? _assistant;
     private StatusMenu? _statusMenu;
+    private SettingsWindow? _settingsWindow;
 
     public static SettingsStore Settings { get; private set; } = null!;
 
@@ -34,8 +36,8 @@ public sealed class AppDelegate : NSApplicationDelegate
         var folder = Path.Combine(NSBundle.MainBundle.ResourcePath ?? AppContext.BaseDirectory, "Assistants");
         ViewModel.Initialize([folder]);
         _statusMenu = new StatusMenu(ViewModel, Assistant, OpenSettings);
-        Assistant.OptionsRequested += (_, _) => OpenSettings();
-        Assistant.ChooseAssistantRequested += (_, _) => OpenSettings();
+        Assistant.OptionsRequested += (_, _) => OpenSettings("Options");
+        Assistant.ChooseAssistantRequested += (_, _) => OpenSettings("Gallery");
 
         // Open the settings only until the user has saved settings, or when no assistant is on screen to open them from.
         if (!Settings.HasSavedSettings || !Assistant.IsOnScreen)
@@ -60,9 +62,11 @@ public sealed class AppDelegate : NSApplicationDelegate
 
     public override void WillTerminate(NSNotification notification) => _assistant?.Dispose();
 
-    private void OpenSettings()
+    private void OpenSettings() => OpenSettings(null);
+
+    private void OpenSettings(string? tab)
     {
-        // The settings window arrives in the next step; until then the menu bar item is the UI.
-        _statusMenu?.Open();
+        _settingsWindow ??= new SettingsWindow(ViewModel, Assistant);
+        _settingsWindow.Present(tab);
     }
 }

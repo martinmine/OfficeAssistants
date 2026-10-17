@@ -27,9 +27,6 @@ internal sealed class StatusMenu : NSMenuDelegate
         _item.Menu = _menu;
     }
 
-    /// <summary>Opens the menu, as if its menu bar item was clicked.</summary>
-    public void Open() => _item.Button.PerformClick(_item.Button);
-
     public override void MenuWillOpen(NSMenu menu)
     {
         menu.RemoveAllItems();
