@@ -64,6 +64,9 @@ public sealed unsafe class GdiTextRenderer : ITextRenderer
         CopyTextPixels(canvas, target, color);
     }
 
+    /// <summary>Selects the regular or bold font into a DC (for <see cref="GdiGlyphBaker"/>).</summary>
+    internal void SelectFont(HDC dc, bool bold) => PInvoke.SelectObject(dc, bold ? _boldFont : _regularFont);
+
     public void Dispose()
     {
         _scratch?.Dispose();

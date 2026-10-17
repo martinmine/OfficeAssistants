@@ -167,6 +167,11 @@ dotnet run --project tools\AcsTool -- balloon save out\save.png
 `tools/extract_sprites.py` (Python with Pillow) regenerates the balloon bullet, arrow and
 warning icon from the screenshots into `src/OfficeAssistant.Core/Rendering/BalloonSprites.g.cs`.
 
+The balloon text on macOS comes from a pre-rendered Tahoma in
+`src/OfficeAssistant.Core/Rendering/BalloonFont.g.cs`. Regenerate it from GDI on Windows
+with `dotnet run --project tools\AcsTool -- bake-font src\OfficeAssistant.Core\Rendering\BalloonFont.g.cs`,
+or from FreeType on a Mac with `tools/FontBaker/bake_font.c` (instructions in the file).
+
 ## Repository layout
 
 | Path | Contents |

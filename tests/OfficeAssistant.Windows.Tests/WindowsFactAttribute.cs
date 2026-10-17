@@ -11,3 +11,15 @@ public sealed class WindowsFactAttribute : FactAttribute
         }
     }
 }
+
+/// <summary>A theory that needs Windows and is skipped on other platforms.</summary>
+public sealed class WindowsTheoryAttribute : TheoryAttribute
+{
+    public WindowsTheoryAttribute()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Skip = "Needs Windows.";
+        }
+    }
+}

@@ -90,3 +90,8 @@ waveOutClose
 WAVE_MAPPER
 WAVEHDR
 WAVEFORMATEX
+
+// Font baking (AcsTool bake-font)
+GetTextMetrics
+GetGlyphIndices
+GGI_MARK_NONEXISTING_GLYPHS
